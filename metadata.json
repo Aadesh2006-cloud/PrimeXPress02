@@ -1,0 +1,8 @@
+{
+  "name": "Remix Prime X-Press Cleaning Inc.",
+  "description": "Professional air duct cleaning, carpet cleaning and window cleaning for residential and commercial properties in Winnipeg, Manitoba. Book now with transparent Canadian standard pricing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

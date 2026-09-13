@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "Registered customer and administrator profiles",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["customer", "admin"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "bookings": {
+      "title": "Service Booking",
+      "description": "Cleaning service appointment bookings and quote requests",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "serviceType": { "type": "string" },
+        "packageTier": { "type": "string" },
+        "propertyType": { "type": "string" },
+        "address": { "type": "string" },
+        "preferredDate": { "type": "string" },
+        "preferredTimeSlot": { "type": "string" },
+        "estimatedPriceCAD": { "type": "number" },
+        "additionalNotes": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "completed", "cancelled"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["customerName", "customerPhone", "serviceType", "status", "createdAt"]
+    },
+    "reviews": {
+      "title": "Customer Review",
+      "description": "Verified client reviews and feedback for Winnipeg services",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "rating": { "type": "number", "minimum": 1, "maximum": 5 },
+        "service": { "type": "string" },
+        "neighborhood": { "type": "string" },
+        "comment": { "type": "string" },
+        "verified": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["authorName", "rating", "service", "comment", "createdAt"]
+    }
+  }
+}
