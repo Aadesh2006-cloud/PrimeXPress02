@@ -8,6 +8,9 @@ import {
   saveReviewToSupabase,
   getReviewsFromSupabase,
   getStoredLocalBookings,
+  saveLocalBookingRecord,
+  getBookingByIdFromSupabase,
+  syncConsumerBookings,
   findBookingsByQuery,
   getDeletedBookingIds,
   markBookingAsPermanentlyDeleted,
@@ -21,10 +24,23 @@ import {
   MASTER_ADMIN_EMAIL
 } from './notificationService';
 import { db } from '../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  collection,
+  query,
+  where,
+  getDocs
+} from 'firebase/firestore';
 
 export {
   getStoredLocalBookings,
+  saveLocalBookingRecord,
+  getBookingByIdFromSupabase,
+  syncConsumerBookings,
   findBookingsByQuery,
   updateBookingDetailsInSupabase,
   getDeletedBookingIds,
@@ -35,18 +51,22 @@ export {
  * Save booking to Supabase and Firestore backends and dispatch notifications:
  * 1. Alerts Admin mail (primexpress33@gmail.com)
  * 2. Alerts Admin Portal with pending status badge
- * 3. Saves to Cloud Firestore & Supabase
+ * 3. Saves to Cloud Firestore & Supabase with normalized Gmail/email
  */
 export const saveBooking = async (
   booking: Omit<BookingRecord, 'id' | 'createdAt'>
 ): Promise<string> => {
-  const savedId = await saveBookingToSupabase({
+  const normalizedEmail = (booking.customerEmail || '').trim().toLowerCase();
+  const normalizedBooking = {
     ...booking,
-    status: 'pending',
-  });
+    customerEmail: normalizedEmail,
+    status: (booking.status || 'pending') as BookingStatus,
+  };
+
+  const savedId = await saveBookingToSupabase(normalizedBooking);
 
   const fullRecord: BookingRecord = {
-    ...booking,
+    ...normalizedBooking,
     id: savedId,
     status: 'pending',
     createdAt: new Date().toISOString(),
@@ -61,6 +81,7 @@ export const saveBooking = async (
     const bookingRef = doc(db, 'bookings', savedId);
     await setDoc(bookingRef, {
       ...fullRecord,
+      customerEmail: normalizedEmail,
       updatedAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -89,8 +110,34 @@ export const approveBooking = async (
     consumerConfirmationSent: true,
   };
 
+  const updatedBookingRecord: BookingRecord = {
+    ...booking,
+    ...updates,
+  };
+
+  // 1. Immediately update local storage so consumer views have the approved record
+  saveLocalBookingRecord(updatedBookingRecord);
+
+  // 2. Mark in local storage as latest approved booking for consumer alerts
+  try {
+    localStorage.setItem(
+      'pxc_consumer_latest_approved',
+      JSON.stringify({
+        bookingId: booking.id,
+        serviceType: booking.serviceType,
+        customerName: booking.customerName,
+        customerEmail: booking.customerEmail,
+        preferredDate: booking.preferredDate,
+        preferredTimeSlot: booking.preferredTimeSlot,
+        timestamp: Date.now(),
+      })
+    );
+  } catch {}
+
+  // 3. Update Supabase backend
   await updateBookingDetailsInSupabase(booking.id, updates);
 
+  // 4. Update Firestore if present
   try {
     const bookingRef = doc(db, 'bookings', booking.id);
     await updateDoc(bookingRef, updates);
@@ -98,38 +145,120 @@ export const approveBooking = async (
     console.debug('Firestore booking approval sync note:', err);
   }
 
+  // 5. Broadcast custom event for immediate consumer view updates
+  window.dispatchEvent(
+    new CustomEvent('pxc-booking-approved', {
+      detail: { bookingId: booking.id, booking: updatedBookingRecord },
+    })
+  );
+
   return processAdminBookingApproval(
-    {
-      ...booking,
-      ...updates,
-    },
+    updatedBookingRecord,
     adminEmail
   );
 };
 
 /**
- * Fetch bookings for a user from Supabase
+ * Fetch bookings strictly connected to a consumer's Gmail / email or user ID.
+ * Queries both Supabase and Firestore, deduplicates records, and guarantees that
+ * no other user's bookings are returned.
  */
 export const getUserBookings = async (
-  userId: string,
+  userId?: string,
   userEmail?: string
 ): Promise<BookingRecord[]> => {
-  return await getUserBookingsFromSupabase(userId, userEmail);
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const cleanUserId = (userId || '').trim();
+
+  // If neither email nor userId is available, consumer has no connected bookings
+  if (!cleanEmail && !cleanUserId) {
+    return [];
+  }
+
+  const results: BookingRecord[] = [];
+  const seenIds = new Set<string>();
+
+  // 1. Fetch from Supabase
+  try {
+    const fromSb = await getUserBookingsFromSupabase(cleanUserId, cleanEmail);
+    for (const b of fromSb) {
+      if (b.id && !seenIds.has(b.id)) {
+        seenIds.add(b.id);
+        results.push(b);
+      }
+    }
+  } catch (err) {
+    console.debug('Supabase getUserBookings notice:', err);
+  }
+
+  // 2. Query Cloud Firestore dual database
+  try {
+    const bookingsColl = collection(db, 'bookings');
+
+    if (cleanEmail) {
+      const qEmail = query(bookingsColl, where('customerEmail', '==', cleanEmail));
+      const snapEmail = await getDocs(qEmail);
+      snapEmail.forEach((docSnap) => {
+        const data = docSnap.data() as BookingRecord;
+        const id = docSnap.id || data.id;
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          results.push({ ...data, id });
+        }
+      });
+    }
+
+    if (cleanUserId) {
+      const qUser = query(bookingsColl, where('userId', '==', cleanUserId));
+      const snapUser = await getDocs(qUser);
+      snapUser.forEach((docSnap) => {
+        const data = docSnap.data() as BookingRecord;
+        const id = docSnap.id || data.id;
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          results.push({ ...data, id });
+        }
+      });
+    }
+  } catch (err) {
+    console.debug('Firestore getUserBookings query notice:', err);
+  }
+
+  // 3. Filter out deleted bookings and strictly verify email / userId connection
+  const deletedIds = new Set(getDeletedBookingIds());
+  const valid = results.filter((b) => {
+    if (!b || !b.id) return false;
+    if (deletedIds.has(b.id)) return false;
+    if (b.status === 'deleted' || (b as any).isDeleted) return false;
+    
+    const matchesEmail = Boolean(
+      cleanEmail && b.customerEmail?.trim().toLowerCase() === cleanEmail
+    );
+    const matchesUser = Boolean(cleanUserId && b.userId === cleanUserId);
+    return matchesEmail || matchesUser;
+  });
+
+  return valid.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
 };
 
 /**
- * Fetch a single booking by its ID across local cache, Firestore, and Supabase
+ * Fetch a single booking by its ID across Supabase, Firestore, and local cache.
+ * Queries Supabase first to ensure the live approved status is returned to the consumer.
  */
 export const getBookingById = async (bookingId: string): Promise<BookingRecord | null> => {
   if (!bookingId) return null;
 
-  // 1. Try local cache first for instant retrieval
+  // 1. Try Supabase FIRST to get live database status (e.g. approved by admin)
   try {
-    const localList = getStoredLocalBookings();
-    const localFound = localList.find((b) => b.id === bookingId);
-    if (localFound) return localFound;
-  } catch {
-    // ignore
+    const fromSb = await getBookingByIdFromSupabase(bookingId);
+    if (fromSb) {
+      saveLocalBookingRecord(fromSb);
+      return fromSb;
+    }
+  } catch (err) {
+    console.debug('Supabase getBookingById note:', err);
   }
 
   // 2. Try Firestore
@@ -137,19 +266,21 @@ export const getBookingById = async (bookingId: string): Promise<BookingRecord |
     const bookingRef = doc(db, 'bookings', bookingId);
     const snap = await getDoc(bookingRef);
     if (snap.exists()) {
-      return snap.data() as BookingRecord;
+      const record = snap.data() as BookingRecord;
+      saveLocalBookingRecord(record);
+      return record;
     }
   } catch (err) {
     console.debug('Firestore getBookingById note:', err);
   }
 
-  // 3. Try Supabase query search
+  // 3. Fallback to local cache
   try {
-    const results = await findBookingsByQuery(bookingId);
-    const matched = results.find((b) => b.id === bookingId);
-    if (matched) return matched;
-  } catch (err) {
-    console.debug('Supabase getBookingById note:', err);
+    const localList = getStoredLocalBookings();
+    const localFound = localList.find((b) => b.id === bookingId);
+    if (localFound) return localFound;
+  } catch {
+    // ignore
   }
 
   return null;

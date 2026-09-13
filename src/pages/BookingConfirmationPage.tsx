@@ -82,14 +82,30 @@ export const BookingConfirmationPage: React.FC<BookingConfirmationPageProps> = (
         }
       }
 
-      // Fallback: if user is logged in or recently created a booking
-      if (!queryId && localBookings.length > 0) {
-        // Take the latest confirmed or pending booking
-        const latest = localBookings[0];
-        if (isMounted && latest) {
-          setBooking(latest);
-          setLoading(false);
-          return;
+      // Fallback: only if user has a booking matching their email
+      if (!queryId) {
+        if (user && user.email) {
+          const userEmailClean = user.email.trim().toLowerCase();
+          const userMatchingBooking = localBookings.find(
+            (b) => b.customerEmail?.trim().toLowerCase() === userEmailClean || b.userId === user.uid
+          );
+          if (userMatchingBooking) {
+            if (userMatchingBooking.id) {
+              try {
+                const found = await getBookingById(userMatchingBooking.id);
+                if (isMounted && found) {
+                  setBooking(found);
+                  setLoading(false);
+                  return;
+                }
+              } catch {}
+            }
+            if (isMounted) {
+              setBooking(userMatchingBooking);
+              setLoading(false);
+              return;
+            }
+          }
         }
       }
 
@@ -100,8 +116,19 @@ export const BookingConfirmationPage: React.FC<BookingConfirmationPageProps> = (
 
     loadTargetBooking();
 
+    const handleLiveUpdate = () => {
+      loadTargetBooking();
+    };
+
+    window.addEventListener('pxc-booking-updated', handleLiveUpdate);
+    window.addEventListener('pxc-booking-approved', handleLiveUpdate);
+    window.addEventListener('storage', handleLiveUpdate);
+
     return () => {
       isMounted = false;
+      window.removeEventListener('pxc-booking-updated', handleLiveUpdate);
+      window.removeEventListener('pxc-booking-approved', handleLiveUpdate);
+      window.removeEventListener('storage', handleLiveUpdate);
     };
   }, [queryId]);
 

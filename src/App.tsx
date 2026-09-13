@@ -8,6 +8,7 @@ import { QuoteModal } from './components/QuoteModal';
 import { AuthProvider } from './contexts/AuthContext';
 import { ClientPortalModal } from './components/ClientPortalModal';
 import { AdminModal } from './components/AdminModal';
+import { ConsumerApprovalNotifier } from './components/ConsumerApprovalNotifier';
 
 // Multi-page imports
 import { HomePage } from './pages/HomePage';
@@ -102,6 +103,9 @@ export default function App() {
 
           {/* Secure Admin Panel Modal */}
           <AdminModal />
+
+          {/* Consumer Live Booking Approval Notifier */}
+          <ConsumerApprovalNotifier />
         </div>
       </BrowserRouter>
     </AuthProvider>

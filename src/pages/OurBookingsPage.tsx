@@ -22,18 +22,21 @@ import {
   CalendarPlus,
   HelpCircle,
   ArrowRight,
-  FileCheck2
+  FileCheck2,
+  CalendarCheck
 } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { COMPANY_INFO } from '../data/cleaningData';
-import { findBookingsByQuery, getStoredLocalBookings } from '../services/firestoreService';
+import { findBookingsByQuery, getUserBookings, syncConsumerBookings } from '../services/firestoreService';
 import { BookingRecord, BookingStatus } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 interface OurBookingsPageProps {
   onOpenQuoteModal: (service?: string) => void;
 }
 
 export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteModal }) => {
+  const { user, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get('ref') || searchParams.get('q') || searchParams.get('query') || '';
 
@@ -42,18 +45,59 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
   const [searchResults, setSearchResults] = useState<BookingRecord[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [hasSearched, setHasSearched] = useState<boolean>(false);
-  const [localBookings, setLocalBookings] = useState<BookingRecord[]>([]);
+  const [userBookings, setUserBookings] = useState<BookingRecord[]>([]);
+  const [isLoadingUserBookings, setIsLoadingUserBookings] = useState<boolean>(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Load recent local bookings saved on this browser
-  useEffect(() => {
-    try {
-      const stored = getStoredLocalBookings();
-      setLocalBookings(stored);
-    } catch {
-      setLocalBookings([]);
+  // Load bookings strictly connected to the logged-in user's Gmail / email
+  const loadUserConnectedBookings = async () => {
+    if (!user || !user.email) {
+      setUserBookings([]);
+      setIsLoadingUserBookings(false);
+      return;
     }
-  }, []);
+
+    setIsLoadingUserBookings(true);
+    try {
+      const records = await getUserBookings(user.uid, user.email);
+      setUserBookings(records || []);
+
+      // Background live sync for status updates
+      const bookingIds = (records || []).map((b) => b.id).filter(Boolean) as string[];
+      if (bookingIds.length > 0) {
+        const synced = await syncConsumerBookings(bookingIds, user.email);
+        if (synced && synced.length > 0) {
+          setUserBookings(synced);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching user connected bookings:', err);
+      setUserBookings([]);
+    } finally {
+      setIsLoadingUserBookings(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUserConnectedBookings();
+
+    const handleUpdate = () => {
+      loadUserConnectedBookings();
+      if (searchedQuery) {
+        executeSearch(searchedQuery);
+      }
+    };
+
+    window.addEventListener('pxc-booking-updated', handleUpdate);
+    window.addEventListener('pxc-booking-approved', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    return () => {
+      window.removeEventListener('pxc-booking-updated', handleUpdate);
+      window.removeEventListener('pxc-booking-approved', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, [user?.email, user?.uid, searchedQuery]);
 
   // If URL has ref or query parameter, auto execute search on mount
   useEffect(() => {
@@ -73,18 +117,22 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
 
     try {
       const results = await findBookingsByQuery(q);
-      setSearchResults(results);
+      if (user && !isAdmin) {
+        const cleanUserEmail = (user.email || '').trim().toLowerCase();
+        // Regular consumer: strictly filter so only their bookings or exact reference ID are viewable
+        const filtered = results.filter(
+          (b) =>
+            (cleanUserEmail && b.customerEmail?.trim().toLowerCase() === cleanUserEmail) ||
+            (user.uid && b.userId === user.uid) ||
+            (b.id && b.id.toLowerCase() === q.toLowerCase())
+        );
+        setSearchResults(filtered);
+      } else {
+        setSearchResults(results);
+      }
     } catch (err) {
       console.error('Error finding booking:', err);
-      // Fallback search in local storage
-      const locals = getStoredLocalBookings().filter(
-        (b) =>
-          b.id?.toLowerCase().includes(q.toLowerCase()) ||
-          b.customerEmail?.toLowerCase().includes(q.toLowerCase()) ||
-          b.customerPhone?.replace(/\D/g, '').includes(q.replace(/\D/g, '')) ||
-          b.customerName?.toLowerCase().includes(q.toLowerCase())
-      );
-      setSearchResults(locals);
+      setSearchResults([]);
     } finally {
       setIsSearching(false);
     }
@@ -232,19 +280,19 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
               >
                 Dispatch Phone (204-515-7440)
               </button>
-              {localBookings.length > 0 && (
+              {user && userBookings.length > 0 && (
                 <button
                   type="button"
                   onClick={() => {
-                    const latest = localBookings[0];
-                    if (latest.id) {
+                    const latest = userBookings[0];
+                    if (latest?.id) {
                       setSearchInput(latest.id);
                       executeSearch(latest.id);
                     }
                   }}
                   className="px-2.5 py-1 rounded-full bg-amber-400 text-[#063F4D] text-[11px] font-bold transition-transform hover:scale-105 cursor-pointer shadow-xs"
                 >
-                  View My Recent Booking ({localBookings[0].id?.slice(0, 10)}...)
+                  View My Booking ({userBookings[0].id?.slice(0, 10)}...)
                 </button>
               )}
             </div>
@@ -304,7 +352,7 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
                     No Booking Found for "{searchedQuery}"
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto">
-                    We could not locate an active booking record with that Reference ID, phone number, or email.
+                    We could not locate an active booking record matching that query.
                   </p>
                 </div>
 
@@ -316,7 +364,7 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
                   <ul className="list-disc pl-5 space-y-1">
                     <li>Check for typos in your 10-digit phone number (e.g. 204-515-7440).</li>
                     <li>Verify the email address provided during quote submission.</li>
-                    <li>Reference IDs typically start with <strong>PXC-</strong> or <strong>bkg_</strong>.</li>
+                    <li>Reference IDs typically start with <strong>PXC-</strong> or <strong>sb_bk_</strong>.</li>
                   </ul>
                 </div>
 
@@ -355,69 +403,163 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
           </div>
         ) : null}
 
-        {/* Local Device History / Recent Submissions on this Browser */}
-        {!hasSearched && localBookings.length > 0 && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <Clock3 className="w-4 h-4 text-[#00A8AD]" />
-                <h3 className="text-base sm:text-lg font-bold text-[#063F4D]">
-                  Recent Bookings Saved on this Device ({localBookings.length})
-                </h3>
+        {/* When not actively searching: Show Connected Consumer Bookings or Clean Guest Welcome */}
+        {!hasSearched && (
+          <div>
+            {user ? (
+              // Consumer is Logged In: Show strictly bookings connected to their Gmail / email
+              <div className="space-y-6">
+                {isLoadingUserBookings ? (
+                  <div className="bg-white rounded-3xl p-10 sm:p-14 text-center border border-slate-200 shadow-sm space-y-4">
+                    <div className="w-12 h-12 rounded-2xl bg-[#BFEDEE]/50 text-[#00A8AD] flex items-center justify-center mx-auto animate-spin">
+                      <RefreshCw className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-base font-bold text-[#063F4D]">
+                        Checking Bookings Connected to {user.email}...
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Synchronizing with Winnipeg dispatch and cloud records
+                      </p>
+                    </div>
+                  </div>
+                ) : userBookings.length === 0 ? (
+                  // CLEAN BOOKING PAGE FOR NEW / CURRENT CONSUMER (ZERO FOREIGN DATA)
+                  <div className="bg-white rounded-3xl p-8 sm:p-14 text-center border border-slate-200/90 shadow-sm space-y-6">
+                    <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-100 shadow-xs">
+                      <CalendarCheck className="w-8 h-8" />
+                    </div>
+
+                    <div className="space-y-2 max-w-md mx-auto">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">
+                        <Mail className="w-3.5 h-3.5 text-[#00A8AD]" />
+                        <span>Connected Google Account: {user.email}</span>
+                      </div>
+                      <h3 className="text-xl sm:text-2xl font-extrabold text-[#063F4D]">
+                        Your Booking History is Clean
+                      </h3>
+                      <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                        No cleaning appointments are currently linked to <strong className="text-[#063F4D]">{user.email}</strong>. Whenever you book an Air Duct, Carpet, Window, or Deep Cleaning service, all your real-time dispatch updates, time slots, and confirmation receipts will automatically connect here.
+                      </p>
+                    </div>
+
+                    <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => onOpenQuoteModal()}
+                        className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#00A8AD] hover:bg-[#063F4D] text-white text-xs sm:text-sm font-bold shadow-sm hover:shadow-md transition-all cursor-pointer"
+                      >
+                        <Sparkles className="w-4 h-4 text-amber-300" />
+                        <span>Book a Cleaning Service</span>
+                      </button>
+
+                      <a
+                        href={`tel:${COMPANY_INFO.primaryPhoneRaw}`}
+                        className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-[#063F4D] text-xs sm:text-sm font-bold transition-colors"
+                      >
+                        <Phone className="w-4 h-4 text-[#00A8AD]" />
+                        <span>Call Dispatch: {COMPANY_INFO.primaryPhone}</span>
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  // Consumer has bookings linked to their Gmail: Display them cleanly
+                  <div className="space-y-6">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2 border-b border-slate-200">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="text-xl sm:text-2xl font-extrabold text-[#063F4D]">
+                            My Bookings & Invoices ({userBookings.length})
+                          </h2>
+                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
+                            Linked to {user.email}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Real-time cleaning appointments, technician dispatch status, and official receipts.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={loadUserConnectedBookings}
+                          disabled={isLoadingUserBookings}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-[#063F4D] hover:bg-slate-50 cursor-pointer"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 text-[#00A8AD] ${isLoadingUserBookings ? 'animate-spin' : ''}`} />
+                          <span>Refresh</span>
+                        </button>
+                        <button
+                          onClick={handlePrint}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Print Slip</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      {userBookings.map((booking) => (
+                        <BookingStatusCard
+                          key={booking.id}
+                          booking={booking}
+                          onCopy={handleCopy}
+                          copiedId={copiedId}
+                          onDownloadCalendar={handleDownloadCalendar}
+                          onOpenQuoteModal={onOpenQuoteModal}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-              <span className="text-xs text-slate-500">Auto-saved for your convenience</span>
-            </div>
-
-            <div className="grid gap-4">
-              {localBookings.map((b) => (
-                <div
-                  key={b.id}
-                  className="p-5 rounded-2xl bg-white border border-slate-200 hover:border-[#00A8AD]/50 shadow-sm transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-                >
-                  <div className="space-y-1.5 text-left">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs font-bold bg-slate-100 text-[#063F4D] px-2.5 py-0.5 rounded-md">
-                        {b.id}
-                      </span>
-                      <StatusBadge status={b.status} />
-                      <span className="text-xs text-slate-500">
-                        Date Booked: {new Date(b.createdAt).toLocaleDateString()}
-                      </span>
-                    </div>
-
-                    <div className="text-sm font-extrabold text-[#063F4D]">
-                      {b.serviceType}
-                    </div>
-
-                    <div className="flex items-center gap-4 text-xs text-slate-600 flex-wrap">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-[#00A8AD]" />
-                        {b.preferredDate || 'Earliest available'}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-[#00A8AD]" />
-                        {b.address || 'Winnipeg, MB'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0 w-full md:w-auto">
-                    <button
-                      onClick={() => {
-                        if (b.id) {
-                          setSearchInput(b.id);
-                          executeSearch(b.id);
-                        }
-                      }}
-                      className="w-full md:w-auto px-4 py-2 rounded-xl bg-[#00A8AD] hover:bg-[#063F4D] text-white text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
-                    >
-                      <span>Track Status Details</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+            ) : (
+              // Guest Visitor (Not Signed In): Clean Portal explaining how to access bookings
+              <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-slate-200/90 shadow-sm space-y-6">
+                <div className="w-16 h-16 rounded-2xl bg-[#BFEDEE]/50 text-[#00A8AD] flex items-center justify-center mx-auto border border-[#00A8AD]/20 shadow-xs">
+                  <ShieldCheck className="w-8 h-8" />
                 </div>
-              ))}
-            </div>
+
+                <div className="space-y-2 max-w-md mx-auto">
+                  <h3 className="text-xl sm:text-2xl font-extrabold text-[#063F4D]">
+                    Connect with Your Gmail to View Bookings
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                    Sign in with your Google account or email to view all past and upcoming cleaning appointments connected to your account.
+                  </p>
+                </div>
+
+                <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+                  <Link
+                    to="/signin"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#00A8AD] hover:bg-[#063F4D] text-white text-xs sm:text-sm font-bold shadow-sm hover:shadow-md transition-all"
+                  >
+                    <Mail className="w-4 h-4" />
+                    <span>Sign In with Gmail / Email</span>
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => onOpenQuoteModal()}
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-[#063F4D] text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4 text-[#00A8AD]" />
+                    <span>Book a Cleaning Service</span>
+                  </button>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-[#F5F8F8] border border-slate-200/80 max-w-md mx-auto text-left text-xs text-slate-600 space-y-1">
+                  <div className="font-bold text-[#063F4D] flex items-center gap-1.5">
+                    <Info className="w-4 h-4 text-[#00A8AD]" />
+                    <span>Looking for a Guest Booking?</span>
+                  </div>
+                  <p>
+                    If you booked as a guest without signing in, you can look up your dispatch status anytime by entering your Reference ID (e.g. <strong>PXC-...</strong>) or phone number in the search bar above.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

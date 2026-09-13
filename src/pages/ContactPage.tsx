@@ -36,6 +36,16 @@ export const ContactPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [contactDbId, setContactDbId] = useState<string | null>(null);
 
+  // Auto-connect with user Gmail if logged in
+  useEffect(() => {
+    if (user?.email && !email) {
+      setEmail(user.email);
+    }
+    if (user?.displayName && user.displayName !== 'Consumer' && !fullName) {
+      setFullName(user.displayName);
+    }
+  }, [user]);
+
   const toggleService = (title: string) => {
     if (selectedServices.includes(title)) {
       setSelectedServices(selectedServices.filter((s) => s !== title));
@@ -48,20 +58,22 @@ export const ContactPage: React.FC = () => {
     e.preventDefault();
     setSubmitting(true);
     try {
+      const finalEmail = (email || user?.email || '').trim().toLowerCase();
       const docId = await saveBooking({
         userId: user ? user.uid : undefined,
-        customerName: fullName,
-        customerEmail: email,
-        customerPhone: phone,
+        customerName: fullName.trim(),
+        customerEmail: finalEmail,
+        customerPhone: phone.trim(),
         serviceType: selectedServices.join(', '),
         propertyType: propertyType,
-        address: address,
+        address: address.trim(),
         preferredDate: preferredDate,
-        additionalNotes: notes,
+        additionalNotes: notes.trim(),
         status: 'pending',
       });
       setContactDbId(docId);
       setSubmitted(true);
+      window.dispatchEvent(new CustomEvent('pxc-booking-updated'));
     } catch (err) {
       console.error('Error saving contact booking:', err);
       setSubmitted(true);

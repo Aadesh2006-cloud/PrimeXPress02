@@ -26,6 +26,7 @@ import {
   saveReview,
   findBookingsByQuery,
   getStoredLocalBookings,
+  syncConsumerBookings,
 } from '../services/firestoreService';
 import { BookingRecord, BookingStatus } from '../types';
 import { COMPANY_INFO } from '../data/cleaningData';
@@ -41,7 +42,7 @@ export const ClientPortalModal: React.FC<ClientPortalModalProps> = ({
   onClose: propOnClose,
   onNewBookingClick,
 }) => {
-  const { isPortalModalOpen, closePortalModal } = useAuth();
+  const { isPortalModalOpen, closePortalModal, user } = useAuth();
   const navigate = useNavigate();
 
   const isOpen = propIsOpen !== undefined ? propIsOpen : isPortalModalOpen;
@@ -68,11 +69,40 @@ export const ClientPortalModal: React.FC<ClientPortalModalProps> = ({
   const [submittingReview, setSubmittingReview] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+
+    const loadAndSyncBookings = async () => {
       const local = getStoredLocalBookings();
       setGuestBookings(local);
-    }
-  }, [isOpen]);
+
+      // Query Supabase for any updated status (e.g. approved by admin)
+      const ids = local.map((b) => b.id).filter(Boolean) as string[];
+      try {
+        const refreshed = await syncConsumerBookings(ids, user?.email);
+        if (refreshed && refreshed.length > 0) {
+          setGuestBookings(refreshed);
+        }
+      } catch (err) {
+        console.debug('Failed to sync consumer bookings in portal:', err);
+      }
+    };
+
+    loadAndSyncBookings();
+
+    const handleBookingUpdate = () => {
+      loadAndSyncBookings();
+    };
+
+    window.addEventListener('pxc-booking-updated', handleBookingUpdate);
+    window.addEventListener('pxc-booking-approved', handleBookingUpdate);
+    window.addEventListener('storage', handleBookingUpdate);
+
+    return () => {
+      window.removeEventListener('pxc-booking-updated', handleBookingUpdate);
+      window.removeEventListener('pxc-booking-approved', handleBookingUpdate);
+      window.removeEventListener('storage', handleBookingUpdate);
+    };
+  }, [isOpen, user?.email]);
 
   const handleSearchSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -257,6 +287,34 @@ export const ClientPortalModal: React.FC<ClientPortalModalProps> = ({
             </span>
           </div>
         </div>
+
+        {/* DISPATCH APPROVAL NOTICE */}
+        {(booking.status === 'approved' || booking.status === 'confirmed') && (
+          <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <div>
+                <span className="font-extrabold text-emerald-900 block">
+                  Booking Officially Approved by Winnipeg Dispatch!
+                </span>
+                <span className="text-[11px] text-emerald-800">
+                  Technician route confirmed for {booking.preferredDate || 'your scheduled date'}.
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                navigate(`/booking-confirmation/${booking.id}`);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0 transition-colors cursor-pointer shadow-2xs flex items-center justify-center gap-1"
+            >
+              <span>View Confirmed Booking</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          </div>
+        )}
 
         {/* CLIENT DETAILS IF AVAILABLE */}
         <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">

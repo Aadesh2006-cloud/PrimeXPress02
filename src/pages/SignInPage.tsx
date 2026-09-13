@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, LogIn, Eye, EyeOff, AlertCircle, Sparkles, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, LogIn, Eye, EyeOff, AlertCircle, Sparkles, CheckCircle2, ArrowRight, LogOut } from 'lucide-react';
 import { supabase, SUPABASE_PROJECT_ID } from '../supabaseClient.js';
+import { useAuth } from '../contexts/AuthContext';
 
 export const SignInPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user, loginWithEmail, logout } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -12,21 +14,9 @@ export const SignInPage: React.FC = () => {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // If user is already authenticated or auth completes, redirect to home ("/")
+  // If user is already authenticated or auth completes, allow direct navigation or notification
   useEffect(() => {
     let isMounted = true;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (isMounted && session?.user) {
-        navigate('/');
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (isMounted && session?.user) {
-        navigate('/');
-      }
-    });
-
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'SUPABASE_OAUTH_SUCCESS') {
         navigate('/');
@@ -36,28 +26,48 @@ export const SignInPage: React.FC = () => {
 
     return () => {
       isMounted = false;
-      subscription.unsubscribe();
       window.removeEventListener('message', handleMessage);
     };
   }, [navigate]);
 
+  const validateCredentials = (): boolean => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError('Please enter your email address.');
+      return false;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError('Please enter a valid email address.');
+      return false;
+    }
+    if (!password) {
+      setError('Please enter your password.');
+      return false;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long.');
+      return false;
+    }
+    return true;
+  };
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!validateCredentials()) {
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (signInError) {
-        setError(signInError.message);
-      } else if (data?.user || data?.session) {
+      const result = await loginWithEmail(email.trim(), password);
+      if (result.success) {
         navigate('/');
       } else {
-        navigate('/');
+        setError(result.error || 'Invalid credentials. Please verify your email and password.');
       }
     } catch (err: any) {
       setError(err?.message || 'An unexpected error occurred during sign in.');
@@ -140,8 +150,44 @@ export const SignInPage: React.FC = () => {
           </p>
         </div>
 
+        {/* Currently signed in notification if already authenticated */}
+        {user && (
+          <div className="p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200 text-left space-y-2 animate-fadeIn">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">
+                  Currently Signed In
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={logout}
+                className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+            <p className="text-sm font-extrabold text-[#063F4D] truncate">
+              {user.displayName || 'Consumer'} ({user.email})
+            </p>
+            <p className="text-xs text-slate-600">
+              You are already logged in. Your profile is active in the top navigation bar.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="w-full py-2 px-3 rounded-xl bg-[#00A8AD] text-white font-bold text-xs hover:bg-[#063F4D] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+            >
+              <span>Return to Home</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Continue with Google Button */}
-        <div className="pt-2">
+        <div>
           <button
             id="signin-google-btn"
             type="button"
@@ -174,7 +220,7 @@ export const SignInPage: React.FC = () => {
         </div>
 
         {/* Email & Password Form */}
-        <form onSubmit={handleSignIn} className="space-y-4">
+        <form onSubmit={handleSignIn} className="space-y-4" noValidate>
           <div className="space-y-4">
             {/* Email Field */}
             <div>
@@ -193,9 +239,16 @@ export const SignInPage: React.FC = () => {
                   name="email"
                   type="email"
                   autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (error) setError(null);
+                  }}
                   placeholder="name@example.com"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00A8AD] focus:border-transparent transition-all shadow-xs"
                 />
@@ -223,7 +276,10 @@ export const SignInPage: React.FC = () => {
                   autoComplete="current-password"
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (error) setError(null);
+                  }}
                   placeholder="••••••••"
                   className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00A8AD] focus:border-transparent transition-all shadow-xs"
                 />
@@ -259,7 +315,7 @@ export const SignInPage: React.FC = () => {
             )}
           </button>
 
-          {/* Simple Error Handling: Small error message under the form */}
+          {/* Error Message */}
           {error && (
             <div
               id="signin-error-message"

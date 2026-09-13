@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, UserPlus, User, Eye, EyeOff, AlertCircle, Sparkles, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { supabase, SUPABASE_PROJECT_ID } from '../supabaseClient.js';
+import { useAuth } from '../contexts/AuthContext';
 
 export const SignUpPage: React.FC = () => {
   const navigate = useNavigate();
+  const { registerWithEmail } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,34 +44,50 @@ export const SignUpPage: React.FC = () => {
     };
   }, [navigate]);
 
+  const validateCredentials = (): boolean => {
+    const trimmedName = fullName.trim();
+    if (!trimmedName) {
+      setError('Please enter your full name.');
+      return false;
+    }
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError('Please enter your email address.');
+      return false;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError('Please enter a valid email address.');
+      return false;
+    }
+    if (!password) {
+      setError('Please create a password.');
+      return false;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long.');
+      return false;
+    }
+    return true;
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!validateCredentials()) {
+      return;
+    }
+
     setLoading(true);
 
     try {
       const trimmedName = fullName.trim();
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            full_name: trimmedName,
-            name: trimmedName,
-          },
-        },
-      });
-
-      if (signUpError) {
-        setError(signUpError.message);
-      } else {
-        if (data?.user?.id && trimmedName) {
-          try {
-            localStorage.setItem(`pxc_consumer_name_${data.user.id}`, trimmedName);
-          } catch {}
-        }
-        // After successful signup: redirect the user to the Home page ("/")
+      const result = await registerWithEmail(email.trim(), password, trimmedName);
+      if (result.success) {
         navigate('/');
+      } else {
+        setError(result.error || 'Failed to create account. Please check your details.');
       }
     } catch (err: any) {
       setError(err?.message || 'An unexpected error occurred during sign up.');
@@ -183,7 +201,7 @@ export const SignUpPage: React.FC = () => {
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSignUp} className="space-y-4">
+        <form onSubmit={handleSignUp} className="space-y-4" noValidate>
           <div className="space-y-3.5">
             {/* Consumer Name Field */}
             <div>
@@ -202,9 +220,14 @@ export const SignUpPage: React.FC = () => {
                   name="fullName"
                   type="text"
                   autoComplete="name"
+                  autoCapitalize="words"
+                  spellCheck={false}
                   required
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  onChange={(e) => {
+                    setFullName(e.target.value);
+                    if (error) setError(null);
+                  }}
                   placeholder="e.g. John Doe"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00A8AD] focus:border-transparent transition-all shadow-xs"
                 />
@@ -228,9 +251,16 @@ export const SignUpPage: React.FC = () => {
                   name="email"
                   type="email"
                   autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (error) setError(null);
+                  }}
                   placeholder="name@example.com"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00A8AD] focus:border-transparent transition-all shadow-xs"
                 />
@@ -239,12 +269,17 @@ export const SignUpPage: React.FC = () => {
 
             {/* Password Field */}
             <div>
-              <label
-                htmlFor="signup-password"
-                className="block text-xs font-bold uppercase tracking-wider text-[#063F4D] mb-1.5"
-              >
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label
+                  htmlFor="signup-password"
+                  className="block text-xs font-bold uppercase tracking-wider text-[#063F4D]"
+                >
+                  Password
+                </label>
+                <span className={`text-[11px] font-medium transition-colors ${password.length >= 6 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {password.length >= 6 ? '✓ 6+ characters' : 'Min. 6 characters'}
+                </span>
+              </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                   <Lock className="w-4 h-4" />
@@ -256,7 +291,10 @@ export const SignUpPage: React.FC = () => {
                   autoComplete="new-password"
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (error) setError(null);
+                  }}
                   placeholder="At least 6 characters"
                   minLength={6}
                   className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00A8AD] focus:border-transparent transition-all shadow-xs"

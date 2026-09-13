@@ -80,8 +80,10 @@ export const saveBookingToSupabase = async (
 ): Promise<string> => {
   const localId = 'sb_bk_' + Date.now().toString(36);
   const now = new Date().toISOString();
+  const normalizedEmail = (booking.customerEmail || '').trim().toLowerCase();
   const newBookingRecord: BookingRecord = {
     ...booking,
+    customerEmail: normalizedEmail,
     id: localId,
     createdAt: now,
   };
@@ -92,7 +94,7 @@ export const saveBookingToSupabase = async (
   // Payload with snake_case (standard Supabase / Postgres convention)
   const snakePayload: Record<string, any> = {
     customer_name: booking.customerName,
-    customer_email: booking.customerEmail,
+    customer_email: normalizedEmail,
     customer_phone: booking.customerPhone,
     service_type: booking.serviceType,
     property_type: booking.propertyType,
@@ -110,7 +112,7 @@ export const saveBookingToSupabase = async (
   // Payload with camelCase (alternative convention)
   const camelPayload: Record<string, any> = {
     customerName: booking.customerName,
-    customerEmail: booking.customerEmail,
+    customerEmail: normalizedEmail,
     customerPhone: booking.customerPhone,
     serviceType: booking.serviceType,
     propertyType: booking.propertyType,
@@ -178,16 +180,24 @@ export const saveBookingToSupabase = async (
 };
 
 /**
- * Fetch bookings for a specific user from Supabase (and local backup)
+ * Fetch bookings strictly connected to a specific user/Gmail from Supabase (and local backup)
  */
 export const getUserBookingsFromSupabase = async (
   userId: string,
   userEmail?: string
 ): Promise<BookingRecord[]> => {
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const cleanUserId = (userId || '').trim();
+
+  // If no user context, return empty
+  if (!cleanEmail && !cleanUserId) {
+    return [];
+  }
+
   const localBookings = getStoredLocalBookings().filter(
     (b) =>
-      (userId && b.userId === userId) ||
-      (userEmail && b.customerEmail?.toLowerCase() === userEmail.toLowerCase())
+      (cleanUserId && b.userId === cleanUserId) ||
+      (cleanEmail && b.customerEmail?.trim().toLowerCase() === cleanEmail)
   );
 
   const supabaseBookings: BookingRecord[] = [];
@@ -197,18 +207,24 @@ export const getUserBookingsFromSupabase = async (
     try {
       let query = supabase.from(tableName).select('*').order('created_at', { ascending: false });
 
-      if (userEmail && userId) {
-        query = query.or(`customer_email.eq.${userEmail},user_id.eq.${userId}`);
-      } else if (userEmail) {
-        query = query.eq('customer_email', userEmail);
-      } else if (userId) {
-        query = query.eq('user_id', userId);
+      if (cleanEmail && cleanUserId) {
+        query = query.or(`customer_email.ilike.${cleanEmail},user_id.eq.${cleanUserId}`);
+      } else if (cleanEmail) {
+        query = query.ilike('customer_email', cleanEmail);
+      } else if (cleanUserId) {
+        query = query.eq('user_id', cleanUserId);
       }
 
       const { data, error } = await query;
       if (!error && Array.isArray(data)) {
         for (const row of data) {
-          supabaseBookings.push(mapRowToBookingRecord(row));
+          const mapped = mapRowToBookingRecord(row);
+          if (
+            (cleanEmail && mapped.customerEmail?.trim().toLowerCase() === cleanEmail) ||
+            (cleanUserId && mapped.userId === cleanUserId)
+          ) {
+            supabaseBookings.push(mapped);
+          }
         }
         break; // found and fetched from this table
       }
@@ -225,7 +241,11 @@ export const getUserBookingsFromSupabase = async (
     }
   }
 
-  const validRecords = filterOutDeletedBookings(merged);
+  const validRecords = filterOutDeletedBookings(merged).filter(
+    (b) =>
+      (cleanEmail && b.customerEmail?.trim().toLowerCase() === cleanEmail) ||
+      (cleanUserId && b.userId === cleanUserId)
+  );
 
   return validRecords.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -340,6 +360,11 @@ export const findBookingsByQuery = async (searchQuery: string): Promise<BookingR
     }
   }
 
+  // Sync any fetched Supabase records into local cache
+  for (const r of supabaseResults) {
+    saveLocalBookingRecord(r);
+  }
+
   // Merge unique
   const merged = [...supabaseResults];
   for (const lb of locals) {
@@ -351,6 +376,115 @@ export const findBookingsByQuery = async (searchQuery: string): Promise<BookingR
   const validRecords = filterOutDeletedBookings(merged);
 
   return validRecords.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+};
+
+/**
+ * Fetch a single booking by ID directly from Supabase backend
+ */
+export const getBookingByIdFromSupabase = async (bookingId: string): Promise<BookingRecord | null> => {
+  if (!bookingId) return null;
+  const cleanId = bookingId.trim();
+  const tableCandidates = ['bookings', 'booking'];
+
+  for (const tableName of tableCandidates) {
+    try {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .eq('id', cleanId)
+        .maybeSingle();
+
+      if (!error && data) {
+        const record = mapRowToBookingRecord(data);
+        saveLocalBookingRecord(record);
+        return record;
+      }
+    } catch {
+      // try next table
+    }
+  }
+
+  // Also try case-insensitive or partial if exact match failed
+  for (const tableName of tableCandidates) {
+    try {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .ilike('id', `%${cleanId}%`)
+        .limit(1);
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const record = mapRowToBookingRecord(data[0]);
+        saveLocalBookingRecord(record);
+        return record;
+      }
+    } catch {}
+  }
+
+  return null;
+};
+
+/**
+ * Synchronize bookings for the current consumer against Supabase
+ * Updates local storage so any approved status is immediately available to the consumer.
+ */
+export const syncConsumerBookings = async (
+  bookingIds: string[] = [],
+  userEmail?: string
+): Promise<BookingRecord[]> => {
+  const syncedMap = new Map<string, BookingRecord>();
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+
+  // 1. If userEmail is provided, fetch all bookings for that email from Supabase
+  if (cleanEmail) {
+    try {
+      const userRecords = await getUserBookingsFromSupabase('', cleanEmail);
+      for (const r of userRecords) {
+        if (r.id) {
+          syncedMap.set(r.id, r);
+          saveLocalBookingRecord(r);
+        }
+      }
+    } catch (err) {
+      console.debug('syncConsumerBookings userEmail notice:', err);
+    }
+  }
+
+  // 2. For any specific bookingIds, fetch latest live record from Supabase
+  for (const id of bookingIds) {
+    if (!id || syncedMap.has(id)) continue;
+    try {
+      const fromSb = await getBookingByIdFromSupabase(id);
+      if (fromSb && fromSb.id) {
+        if (!cleanEmail || fromSb.customerEmail?.trim().toLowerCase() === cleanEmail) {
+          syncedMap.set(fromSb.id, fromSb);
+          saveLocalBookingRecord(fromSb);
+        }
+      }
+    } catch (err) {
+      console.debug('syncConsumerBookings bookingId notice:', err);
+    }
+  }
+
+  // 3. Keep existing local bookings for any that couldn't be reached, strictly matching userEmail if present
+  const locals = getStoredLocalBookings().filter((lb) => {
+    if (!cleanEmail) return true;
+    return lb.customerEmail?.trim().toLowerCase() === cleanEmail;
+  });
+  for (const lb of locals) {
+    if (lb.id && !syncedMap.has(lb.id)) {
+      syncedMap.set(lb.id, lb);
+    }
+  }
+
+  const result = Array.from(syncedMap.values()).filter((b) => {
+    if (!cleanEmail) return true;
+    return b.customerEmail?.trim().toLowerCase() === cleanEmail;
+  });
+
+  return filterOutDeletedBookings(result).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 };
@@ -404,6 +538,13 @@ export const updateBookingDetailsInSupabase = async (
       console.warn(`Exception during Supabase update for table '${tableName}':`, err);
     }
   }
+
+  // Broadcast update event so open consumer views and modals react immediately
+  window.dispatchEvent(
+    new CustomEvent('pxc-booking-updated', {
+      detail: { bookingId, updates }
+    })
+  );
 };
 
 /**

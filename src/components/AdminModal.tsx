@@ -872,13 +872,14 @@ export const AdminModal: React.FC = () => {
                                 </button>
                                 <button
                                   onClick={() => {
-                                    navigate(`/booking-confirmation?id=${b.id}`);
+                                    closeAdminPanel();
+                                    navigate(`/booking-confirmation/${b.id}`);
                                   }}
-                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 text-[11px] font-bold transition-colors cursor-pointer"
-                                  title="Open public confirmation page"
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-[11px] font-bold transition-colors cursor-pointer"
+                                  title="Close Admin Panel and show the consumer booking view"
                                 >
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                  <span>Public Page</span>
+                                  <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Show Consumer Booking</span>
                                 </button>
                               </>
                             )}
@@ -1136,7 +1137,25 @@ export const AdminModal: React.FC = () => {
               </div>
             </div>
 
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-2">
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  const targetId = selectedBookingForApproval.id;
+                  setSelectedBookingForApproval(null);
+                  setApprovalEmailData(null);
+                  setCopiedEmail(false);
+                  closeAdminPanel();
+                  if (targetId) {
+                    navigate(`/booking-confirmation/${targetId}`);
+                  }
+                }}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                title="Exit admin and view official consumer confirmation view"
+              >
+                <Eye className="w-4 h-4" />
+                <span>Show Consumer Booking</span>
+              </button>
+
               {approvalEmailData.mailtoUrl && (
                 <a
                   href={approvalEmailData.mailtoUrl}
@@ -1145,7 +1164,7 @@ export const AdminModal: React.FC = () => {
                   className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#00A8AD] hover:bg-[#063F4D] text-white text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                 >
                   <Mail className="w-4 h-4" />
-                  <span>Open in Email App (Mail / Gmail)</span>
+                  <span>Open in Email App</span>
                 </a>
               )}
               <button
@@ -1163,7 +1182,7 @@ export const AdminModal: React.FC = () => {
                 ) : (
                   <Copy className="w-4 h-4" />
                 )}
-                <span>{copiedEmail ? 'Copied to Clipboard!' : 'Copy Confirmation'}</span>
+                <span>{copiedEmail ? 'Copied!' : 'Copy Email'}</span>
               </button>
               <button
                 onClick={() => {

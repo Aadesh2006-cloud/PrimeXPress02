@@ -167,12 +167,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQuoteModal }) => {
             </Link>
 
             {/* Desktop Navigation Links */}
-            <nav className="hidden xl:flex items-center space-x-6" aria-label="Main Navigation">
+            <nav className="hidden lg:flex items-center space-x-2.5 xl:space-x-5" aria-label="Main Navigation">
               <NavLink
                 to="/"
                 end
                 className={({ isActive }) =>
-                  `text-sm font-semibold transition-colors py-1 relative ${
+                  `text-xs xl:text-sm font-semibold transition-colors py-1 relative ${
                     isActive
                       ? 'text-[#00A8AD] font-bold after:content-[\'\'] after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-[#00A8AD]'
                       : 'text-[#17343A] hover:text-[#00A8AD]'
@@ -308,17 +308,27 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQuoteModal }) => {
                 Contact
               </NavLink>
 
+              {/* Consumer profile shown in place of Sign In when authenticated */}
               {user ? (
-                <div className="relative" ref={userMenuRef}>
+                <div className="relative" ref={userMenuRef} id="navbar-consumer-container">
                   <button
                     id="menu-consumer-name-btn"
                     type="button"
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs bg-[#00A8AD] text-white hover:bg-[#063F4D] max-w-[170px]"
-                    title={`Consumer Account: ${user.displayName || 'Customer'}`}
+                    className="px-3 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-2 cursor-pointer shadow-xs bg-[#00A8AD] text-white hover:bg-[#063F4D] max-w-[210px]"
+                    title={`Active Consumer: ${user.displayName || user.email || 'Consumer'}`}
                   >
-                    <User className="w-3.5 h-3.5 text-[#BFEDEE] shrink-0" />
-                    <span className="truncate">{user.displayName || 'Customer'}</span>
+                    <div className="w-5 h-5 rounded-full bg-white/25 flex items-center justify-center text-[10px] font-black uppercase text-white shrink-0">
+                      {(user.displayName || user.email || 'C').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="truncate text-left leading-tight">
+                      <span className="text-[9px] text-[#BFEDEE] font-extrabold uppercase tracking-wider block">
+                        Consumer
+                      </span>
+                      <span className="truncate font-extrabold text-xs block max-w-[110px]">
+                        {user.displayName || (user.email ? user.email.split('@')[0] : 'Account')}
+                      </span>
+                    </div>
                     <ChevronDown
                       className={`w-3 h-3 text-white/80 shrink-0 transition-transform duration-200 ${
                         userMenuOpen ? 'rotate-180' : ''
@@ -327,13 +337,16 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQuoteModal }) => {
                   </button>
 
                   {userMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-white shadow-xl border border-slate-200 py-2 z-50 text-left animate-fadeIn">
-                      <div className="px-4 py-2.5 border-b border-slate-100">
-                        <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                          Consumer Account
-                        </p>
+                    <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white shadow-xl border border-slate-200 py-2 z-50 text-left animate-fadeIn">
+                      <div className="px-4 py-2.5 border-b border-slate-100 bg-[#F5F8F8]/70 rounded-t-2xl">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">
+                            Signed In as Consumer
+                          </p>
+                        </div>
                         <p className="text-sm font-extrabold text-[#063F4D] truncate">
-                          {user.displayName || 'Customer'}
+                          {user.displayName || 'Consumer'}
                         </p>
                         <p className="text-xs text-slate-500 truncate">{user.email}</p>
                       </div>
@@ -345,7 +358,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQuoteModal }) => {
                           className="flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-[#BFEDEE]/30 hover:text-[#00A8AD] transition-colors"
                         >
                           <Clock3 className="w-4 h-4 text-[#00A8AD]" />
-                          <span>My Bookings</span>
+                          <span>My Bookings & Invoices</span>
                         </NavLink>
                         <button
                           type="button"
@@ -356,7 +369,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQuoteModal }) => {
                           className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-[#BFEDEE]/30 hover:text-[#00A8AD] transition-colors text-left cursor-pointer"
                         >
                           <Sparkles className="w-4 h-4 text-[#00A8AD]" />
-                          <span>Book Cleaning</span>
+                          <span>Book Cleaning Service</span>
                         </button>
                       </div>
 
@@ -575,15 +588,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQuoteModal }) => {
               </NavLink>
 
               {user ? (
-                <div className="rounded-2xl bg-[#00A8AD]/10 border border-[#00A8AD]/20 p-3 space-y-2 text-left">
+                <div className="rounded-2xl bg-[#00A8AD]/10 border border-[#00A8AD]/20 p-3.5 space-y-2.5 text-left" id="mobile-consumer-container">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5 truncate">
                       <div className="w-8 h-8 rounded-xl bg-[#00A8AD] text-white flex items-center justify-center font-extrabold text-xs shrink-0 shadow-xs">
                         {(user.displayName || 'C').charAt(0).toUpperCase()}
                       </div>
                       <div className="truncate">
+                        <span className="text-[10px] font-extrabold text-[#00A8AD] uppercase tracking-wider block">
+                          Consumer Account
+                        </span>
                         <p className="text-xs font-extrabold text-[#063F4D] truncate">
-                          {user.displayName || 'Customer'}
+                          {user.displayName || 'Consumer'}
                         </p>
                         <p className="text-[10px] text-slate-500 truncate">{user.email}</p>
                       </div>
@@ -599,6 +615,16 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQuoteModal }) => {
                       <LogOut className="w-3.5 h-3.5" />
                       <span>Sign Out</span>
                     </button>
+                  </div>
+                  <div className="pt-2 border-t border-[#00A8AD]/15 flex items-center gap-3">
+                    <NavLink
+                      to="/our-bookings"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="text-xs font-bold text-[#00A8AD] hover:text-[#063F4D] flex items-center gap-1.5"
+                    >
+                      <Clock3 className="w-3.5 h-3.5" />
+                      <span>My Bookings & Invoices</span>
+                    </NavLink>
                   </div>
                 </div>
               ) : (

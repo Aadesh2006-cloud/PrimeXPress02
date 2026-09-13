@@ -31,12 +31,12 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({ isOpen, onClose, default
   const [loading, setLoading] = useState(false);
   const [bookingDbId, setBookingDbId] = useState<string | null>(null);
 
-  // Clear all fields whenever modal opens to prevent prefilled data
+  // Initialize fields when modal opens, linking to user Gmail if logged in
   useEffect(() => {
     if (isOpen) {
-      setFullName('');
+      setFullName(user?.displayName && user.displayName !== 'Consumer' ? user.displayName : '');
       setPhone('');
-      setEmail('');
+      setEmail(user?.email || '');
       setPropertyType('Residential');
       setSelectedService(defaultService || '');
       setPreferredTimeSlot('');
@@ -46,7 +46,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({ isOpen, onClose, default
       setSubmitted(false);
       setBookingDbId(null);
     }
-  }, [isOpen, defaultService]);
+  }, [isOpen, defaultService, user]);
 
   if (!isOpen) return null;
 
@@ -55,21 +55,25 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({ isOpen, onClose, default
     setLoading(true);
 
     try {
+      const finalEmail = (email || user?.email || '').trim().toLowerCase();
       const docId = await saveBooking({
         userId: user ? user.uid : undefined,
-        customerName: fullName,
-        customerEmail: email,
-        customerPhone: phone,
+        customerName: fullName.trim(),
+        customerEmail: finalEmail,
+        customerPhone: phone.trim(),
         serviceType: selectedService,
         propertyType: propertyType,
-        address: address,
+        address: address.trim(),
         preferredDate: preferredDate,
         preferredTimeSlot: preferredTimeSlot,
-        additionalNotes: notes,
+        additionalNotes: notes.trim(),
         status: 'pending',
       });
       setBookingDbId(docId);
       setSubmitted(true);
+
+      // Dispatch event to instantly sync OurBookingsPage
+      window.dispatchEvent(new CustomEvent('pxc-booking-updated'));
     } catch (error) {
       console.error('Error saving booking to Supabase:', error);
       // Fallback still allows user experience
