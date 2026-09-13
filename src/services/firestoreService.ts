@@ -83,7 +83,7 @@ export const approveBooking = async (
   if (!booking.id) return null;
 
   const updates = {
-    status: 'confirmed' as const,
+    status: 'approved' as const,
     approvedAt: new Date().toISOString(),
     approvedBy: adminEmail,
     consumerConfirmationSent: true,

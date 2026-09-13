@@ -169,7 +169,7 @@ export const BookingConfirmationPage: React.FC<BookingConfirmationPageProps> = (
       `LOCATION:${targetBooking.address || 'Winnipeg, MB'}`,
       `DTSTART:${cleanDate}T${startTime}`,
       `DTEND:${cleanDate}T${endTime}`,
-      `STATUS:${targetBooking.status === 'confirmed' ? 'CONFIRMED' : 'TENTATIVE'}`,
+      `STATUS:${targetBooking.status === 'confirmed' || targetBooking.status === 'approved' ? 'CONFIRMED' : 'TENTATIVE'}`,
       'END:VEVENT',
       'END:VCALENDAR',
     ].join('\r\n');
@@ -222,82 +222,85 @@ export const BookingConfirmationPage: React.FC<BookingConfirmationPageProps> = (
           <p className="text-xs text-slate-500 mt-1">Connecting to Winnipeg Dispatch records</p>
         </div>
       ) : booking ? (
-        <div className="space-y-6">
-          {/* Main Confirmation Hero Banner */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
-            {/* Header Stripe */}
-            <div
-              className={`p-6 sm:p-8 text-white flex flex-col md:flex-row md:items-center md:justify-between gap-6 ${
-                booking.status === 'confirmed'
-                  ? 'bg-gradient-to-r from-[#063F4D] via-[#054c5d] to-[#00A8AD]'
-                  : 'bg-gradient-to-r from-amber-700 via-amber-800 to-[#063F4D]'
-              }`}
-            >
-              <div className="flex items-start gap-4">
+        (() => {
+          const isConfirmed = booking.status === 'confirmed' || booking.status === 'approved';
+          return (
+            <div className="space-y-6">
+              {/* Main Confirmation Hero Banner */}
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
+                {/* Header Stripe */}
                 <div
-                  className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${
-                    booking.status === 'confirmed'
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-amber-400 text-amber-950'
+                  className={`p-6 sm:p-8 text-white flex flex-col md:flex-row md:items-center md:justify-between gap-6 ${
+                    isConfirmed
+                      ? 'bg-gradient-to-r from-[#063F4D] via-[#054c5d] to-[#00A8AD]'
+                      : 'bg-gradient-to-r from-amber-700 via-amber-800 to-[#063F4D]'
                   }`}
                 >
-                  {booking.status === 'confirmed' ? (
-                    <CheckCircle2 className="w-8 h-8" />
-                  ) : (
-                    <Clock className="w-8 h-8" />
-                  )}
-                </div>
+                  <div className="flex items-start gap-4">
+                    <div
+                      className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-md ${
+                        isConfirmed
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-amber-400 text-amber-950'
+                      }`}
+                    >
+                      {isConfirmed ? (
+                        <CheckCircle2 className="w-8 h-8" />
+                      ) : (
+                        <Clock className="w-8 h-8" />
+                      )}
+                    </div>
 
-                <div>
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-xs font-extrabold uppercase tracking-wider text-white mb-2">
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#BFEDEE]" />
-                    <span>
-                      {booking.status === 'confirmed'
-                        ? 'Official Dispatch Authorization • Verified'
-                        : 'Dispatch Review In Progress'}
-                    </span>
+                    <div>
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-xs font-extrabold uppercase tracking-wider text-white mb-2">
+                        <ShieldCheck className="w-3.5 h-3.5 text-[#BFEDEE]" />
+                        <span>
+                          {isConfirmed
+                            ? 'Official Dispatch Authorization • Verified'
+                            : 'Dispatch Review In Progress'}
+                        </span>
+                      </div>
+
+                      <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
+                        {isConfirmed
+                          ? 'Booking Approved & Confirmed!'
+                          : 'Booking Request Received'}
+                      </h1>
+
+                      <p className="text-xs sm:text-sm text-[#BFEDEE] mt-1 max-w-xl">
+                        {isConfirmed
+                          ? 'Your appointment has been officially approved by Winnipeg Central Dispatch and scheduled on our active service route.'
+                          : 'Your request has been delivered to Winnipeg Central Dispatch. An administrator will verify truck availability and finalize your confirmation.'}
+                      </p>
+                    </div>
                   </div>
 
-                  <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
-                    {booking.status === 'confirmed'
-                      ? 'Booking Approved & Confirmed!'
-                      : 'Booking Request Received'}
-                  </h1>
-
-                  <p className="text-xs sm:text-sm text-[#BFEDEE] mt-1 max-w-xl">
-                    {booking.status === 'confirmed'
-                      ? 'Your appointment has been officially approved by Winnipeg Central Dispatch and scheduled on our active service route.'
-                      : 'Your request has been delivered to Winnipeg Central Dispatch. An administrator will verify truck availability and finalize your confirmation.'}
-                  </p>
+                  {/* Status Pill on Right */}
+                  <div className="shrink-0 flex flex-col items-start md:items-end gap-1.5">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-white/70">
+                      Verification Status
+                    </span>
+                    <span
+                      className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider inline-flex items-center gap-1.5 shadow-xs ${
+                        isConfirmed
+                          ? 'bg-emerald-400 text-emerald-950'
+                          : 'bg-amber-300 text-amber-950'
+                      }`}
+                    >
+                      {isConfirmed ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Approved & Scheduled</span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="w-4 h-4" />
+                          <span>Pending Dispatch Review</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
                 </div>
-              </div>
-
-              {/* Status Pill on Right */}
-              <div className="shrink-0 flex flex-col items-start md:items-end gap-1.5">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-white/70">
-                  Verification Status
-                </span>
-                <span
-                  className={`px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider inline-flex items-center gap-1.5 shadow-xs ${
-                    booking.status === 'confirmed'
-                      ? 'bg-emerald-400 text-emerald-950'
-                      : 'bg-amber-300 text-amber-950'
-                  }`}
-                >
-                  {booking.status === 'confirmed' ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Approved & Scheduled</span>
-                    </>
-                  ) : (
-                    <>
-                      <Clock className="w-4 h-4" />
-                      <span>Pending Dispatch Review</span>
-                    </>
-                  )}
-                </span>
-              </div>
-            </div>
 
             {/* Verification & Reference ID Bar */}
             <div className="bg-slate-50 border-b border-slate-200 px-6 sm:px-8 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -585,6 +588,8 @@ export const BookingConfirmationPage: React.FC<BookingConfirmationPageProps> = (
             </div>
           </div>
         </div>
+          );
+        })()
       ) : (
         /* No Booking Found / Manual Lookup */
         <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 shadow-xs text-center max-w-xl mx-auto space-y-6">

@@ -18,7 +18,7 @@ export interface UserProfile {
   createdAt: string;
 }
 
-export type BookingStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'deleted';
+export type BookingStatus = 'pending' | 'approved' | 'confirmed' | 'completed' | 'cancelled' | 'deleted';
 
 export interface BookingRecord {
   id?: string;

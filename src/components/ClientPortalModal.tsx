@@ -151,10 +151,11 @@ export const ClientPortalModal: React.FC<ClientPortalModalProps> = ({
 
   const getStatusBadge = (status: BookingStatus) => {
     switch (status) {
+      case 'approved':
       case 'confirmed':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200 shadow-2xs">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Confirmed
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Approved
           </span>
         );
       case 'completed':

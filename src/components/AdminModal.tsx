@@ -28,9 +28,14 @@ import {
   ExternalLink,
   Send,
   Volume2,
-  FileText
+  FileText,
+  Lock,
+  KeyRound,
+  Eye,
+  EyeOff,
+  LogOut
 } from 'lucide-react';
-import { useAuth, MASTER_ADMIN_EMAIL } from '../contexts/AuthContext';
+import { useAuth, MASTER_ADMIN_EMAIL, MASTER_ADMIN_PASS } from '../contexts/AuthContext';
 import {
   getAllBookings,
   updateBookingStatus,
@@ -55,7 +60,17 @@ export const AdminModal: React.FC = () => {
   const {
     isAdminPanelOpen,
     closeAdminPanel,
+    isAdminLoggedIn,
+    loginAdmin,
+    logoutAdmin,
   } = useAuth();
+
+  // Admin login form states
+  const [adminEmailInput, setAdminEmailInput] = useState('');
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Admin Panel Dashboard states
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
@@ -65,6 +80,7 @@ export const AdminModal: React.FC = () => {
   const [serviceFilter, setServiceFilter] = useState('all');
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [successNotification, setSuccessNotification] = useState<string | null>(null);
 
   // Notifications & Approvals
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
@@ -120,13 +136,13 @@ export const AdminModal: React.FC = () => {
     };
   }, []);
 
-  // Fetch bookings when modal opens
+  // Fetch bookings when modal opens and admin is authenticated
   useEffect(() => {
-    if (isAdminPanelOpen) {
+    if (isAdminPanelOpen && isAdminLoggedIn) {
       fetchBookings();
       refreshNotificationsState();
     }
-  }, [isAdminPanelOpen]);
+  }, [isAdminPanelOpen, isAdminLoggedIn]);
 
   const fetchBookings = async () => {
     setIsLoadingBookings(true);
@@ -147,6 +163,10 @@ export const AdminModal: React.FC = () => {
       setBookings((prev) =>
         prev.map((b) => (b.id === bookingId ? { ...b, status: newStatus } : b))
       );
+      if (newStatus === 'approved') {
+        setSuccessNotification(`Booking #${bookingId} status updated to APPROVED in Supabase!`);
+        setTimeout(() => setSuccessNotification(null), 6000);
+      }
     } catch (err) {
       console.error('Error updating status:', err);
     } finally {
@@ -156,8 +176,8 @@ export const AdminModal: React.FC = () => {
 
   /**
    * Handle official Admin approval of a booking:
-   * Sets status to confirmed, generates official confirmation email for the customer,
-   * and opens the email dispatch confirmation dialog.
+   * Sets status to 'approved', syncs to Supabase, logs email dispatch,
+   * updates the Admin Panel in real time and keeps the admin view open.
    */
   const handleApproveBooking = async (booking: BookingRecord) => {
     if (!booking.id) return;
@@ -170,19 +190,19 @@ export const AdminModal: React.FC = () => {
         setApprovalEmailData(result.emailDetails);
         setSelectedBookingForApproval({
           ...booking,
-          status: 'confirmed',
+          status: 'approved',
           approvedAt: new Date().toISOString(),
           approvedBy: MASTER_ADMIN_EMAIL,
           consumerConfirmationSent: true,
         });
 
-        // Update local state
+        // Update local state so it immediately reflects 'approved' in Admin Panel
         setBookings((prev) =>
           prev.map((b) =>
             b.id === booking.id
               ? {
                   ...b,
-                  status: 'confirmed',
+                  status: 'approved',
                   approvedAt: new Date().toISOString(),
                   approvedBy: MASTER_ADMIN_EMAIL,
                   consumerConfirmationSent: true,
@@ -193,9 +213,11 @@ export const AdminModal: React.FC = () => {
 
         refreshNotificationsState();
 
-        // Immediately close Admin panel and redirect to official confirmation page
-        closeAdminPanel();
-        navigate(`/booking-confirmation?id=${booking.id}`);
+        // Display clear feedback banner in Admin Panel
+        setSuccessNotification(
+          `Booking #${booking.id} was successfully APPROVED! Saved to Supabase database (status: approved) and updated in Dispatch.`
+        );
+        setTimeout(() => setSuccessNotification(null), 8000);
       }
     } catch (err) {
       console.error('Error approving booking:', err);
@@ -277,7 +299,155 @@ export const AdminModal: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  const handleAdminLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    setIsLoggingIn(true);
+    try {
+      const res = await loginAdmin(adminEmailInput, adminPasswordInput);
+      if (!res.success) {
+        setLoginError(res.error || 'Invalid Administrator ID or Password.');
+      } else {
+        setAdminPasswordInput('');
+        setLoginError(null);
+        fetchBookings();
+        refreshNotificationsState();
+      }
+    } catch (err: any) {
+      setLoginError(err?.message || 'Authentication error.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleAdminLogout = () => {
+    logoutAdmin();
+    setAdminEmailInput('');
+    setAdminPasswordInput('');
+    setLoginError(null);
+  };
+
   if (!isAdminPanelOpen) return null;
+
+  // If admin is not logged in, render the secure Admin Login portal
+  if (!isAdminLoggedIn) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
+        <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-slate-800 animate-scaleUp">
+          {/* Header */}
+          <div className="px-6 py-5 bg-[#063F4D] text-white flex items-center justify-between border-b border-white/10">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#00A8AD] flex items-center justify-center text-white shadow-sm">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold tracking-tight">Admin Portal Login</h3>
+                <p className="text-xs text-[#BFEDEE]">Prime X-Press Operations Dispatch</p>
+              </div>
+            </div>
+            <button
+              onClick={closeAdminPanel}
+              className="p-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Form Body */}
+          <div className="p-6 space-y-5">
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-2xl bg-[#BFEDEE]/50 text-[#00A8AD] flex items-center justify-center mx-auto mb-2">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <h4 className="text-lg font-extrabold text-[#063F4D]">Administrator Authentication</h4>
+              <p className="text-xs text-slate-500">
+                Enter your authorized administrator ID and password to access the Winnipeg dispatch operations.
+              </p>
+            </div>
+
+            {loginError && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start gap-2 animate-fadeIn">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                <span>{loginError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAdminLoginSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Admin ID / Email
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="admin-login-email-input"
+                    type="email"
+                    required
+                    value={adminEmailInput}
+                    onChange={(e) => {
+                      setAdminEmailInput(e.target.value);
+                      if (loginError) setLoginError(null);
+                    }}
+                    placeholder="Enter admin email address"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#00A8AD] focus:border-transparent text-sm font-medium text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Admin Password
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="admin-login-password-input"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={adminPasswordInput}
+                    onChange={(e) => {
+                      setAdminPasswordInput(e.target.value);
+                      if (loginError) setLoginError(null);
+                    }}
+                    placeholder="Enter admin password"
+                    className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#00A8AD] focus:border-transparent text-sm font-medium text-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                id="admin-login-submit-btn"
+                type="submit"
+                disabled={isLoggingIn}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-[#063F4D] to-[#00A8AD] text-white font-bold text-sm shadow-md hover:shadow-lg transition-all hover:opacity-95 flex items-center justify-center gap-2 cursor-pointer mt-2 disabled:opacity-50"
+              >
+                {isLoggingIn ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Verifying Administrator Credentials...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Sign In to Admin Portal</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Filter calculations
   const filteredBookings = bookings.filter((b) => {
@@ -290,7 +460,11 @@ export const AdminModal: React.FC = () => {
       b.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       b.serviceType?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesStatus = statusFilter === 'all' || b.status === statusFilter;
+    const matchesStatus =
+      statusFilter === 'all' ||
+      b.status === statusFilter ||
+      ((statusFilter === 'approved' || statusFilter === 'confirmed') &&
+        (b.status === 'approved' || b.status === 'confirmed'));
     const matchesService = serviceFilter === 'all' || b.serviceType === serviceFilter;
 
     return matchesSearch && matchesStatus && matchesService;
@@ -298,7 +472,7 @@ export const AdminModal: React.FC = () => {
 
   const totalCount = bookings.length;
   const pendingCount = bookings.filter((b) => b.status === 'pending').length;
-  const confirmedCount = bookings.filter((b) => b.status === 'confirmed').length;
+  const approvedCount = bookings.filter((b) => b.status === 'approved' || b.status === 'confirmed').length;
   const completedCount = bookings.filter((b) => b.status === 'completed').length;
   const cancelledCount = bookings.filter((b) => b.status === 'cancelled').length;
 
@@ -322,8 +496,8 @@ export const AdminModal: React.FC = () => {
                   DISPATCH
                 </span>
               </div>
-              <p className="text-xs text-slate-300">
-                Winnipeg Operations & Cloud Booking Database
+              <p className="text-xs text-[#BFEDEE]">
+                Signed in as: <strong className="text-white font-medium">{MASTER_ADMIN_EMAIL}</strong>
               </p>
             </div>
           </div>
@@ -358,6 +532,17 @@ export const AdminModal: React.FC = () => {
             >
               <Mail className="w-3.5 h-3.5 text-[#BFEDEE]" />
               <span>Mail Logs</span>
+            </button>
+
+            {/* Admin Sign Out / Log Out Button */}
+            <button
+              id="admin-portal-signout-btn"
+              onClick={handleAdminLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 hover:text-white text-xs font-bold border border-rose-400/30 transition-colors cursor-pointer"
+              title="Sign Out of Admin Portal"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-300" />
+              <span className="hidden sm:inline">Sign Out</span>
             </button>
 
             <button
@@ -406,13 +591,13 @@ export const AdminModal: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-blue-700 flex items-center gap-1">
+                <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Confirmed</span>
+                    <span>Approved</span>
                   </div>
-                  <div className="text-2xl sm:text-3xl font-black text-blue-800 mt-1">
-                    {confirmedCount}
+                  <div className="text-2xl sm:text-3xl font-black text-emerald-800 mt-1">
+                    {approvedCount}
                   </div>
                 </div>
 
@@ -505,7 +690,7 @@ export const AdminModal: React.FC = () => {
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                   {/* Status Pills */}
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {(['all', 'pending', 'confirmed', 'completed', 'cancelled'] as const).map((st) => (
+                    {(['all', 'pending', 'approved', 'completed', 'cancelled'] as const).map((st) => (
                       <button
                         key={st}
                         onClick={() => setStatusFilter(st)}
@@ -521,8 +706,8 @@ export const AdminModal: React.FC = () => {
                             ? totalCount
                             : st === 'pending'
                             ? pendingCount
-                            : st === 'confirmed'
-                            ? confirmedCount
+                            : st === 'approved'
+                            ? approvedCount
                             : st === 'completed'
                             ? completedCount
                             : cancelledCount}
@@ -551,6 +736,24 @@ export const AdminModal: React.FC = () => {
                   )}
                 </div>
               </div>
+
+              {/* Live Feedback Notification Banner */}
+              {successNotification && (
+                <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-emerald-950 text-xs font-bold flex items-center justify-between gap-3 shadow-xs animate-fadeIn">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                    <span>{successNotification}</span>
+                  </div>
+                  <button
+                    onClick={() => setSuccessNotification(null)}
+                    className="text-emerald-800 hover:text-emerald-950 text-xs font-black underline cursor-pointer shrink-0"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
 
               {/* Bookings List */}
               <div className="space-y-3">
@@ -588,7 +791,7 @@ export const AdminModal: React.FC = () => {
                 ) : (
                   filteredBookings.map((b) => {
                     const isPending = b.status === 'pending';
-                    const isConfirmed = b.status === 'confirmed';
+                    const isApproved = b.status === 'approved' || b.status === 'confirmed';
 
                     return (
                       <div
@@ -596,6 +799,8 @@ export const AdminModal: React.FC = () => {
                         className={`p-4 sm:p-5 rounded-2xl bg-white shadow-xs transition-all space-y-4 text-left border ${
                           isPending
                             ? 'border-amber-300 ring-1 ring-amber-200 bg-amber-50/20'
+                            : isApproved
+                            ? 'border-emerald-300 ring-1 ring-emerald-100 bg-emerald-50/10'
                             : 'border-slate-200 hover:border-[#00A8AD]/40'
                         }`}
                       >
@@ -622,6 +827,13 @@ export const AdminModal: React.FC = () => {
                                 <span>Awaiting Approval</span>
                               </span>
                             )}
+
+                            {isApproved && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                <span>Approved</span>
+                              </span>
+                            )}
                           </div>
 
                           {/* Top Quick Actions */}
@@ -631,21 +843,25 @@ export const AdminModal: React.FC = () => {
                               <button
                                 onClick={() => handleApproveBooking(b)}
                                 disabled={isApproving && statusUpdatingId === b.id}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer active:scale-95 disabled:opacity-50"
-                                title="Approve booking and generate consumer confirmation email"
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                                title="Approve booking and sync status to Supabase"
                               >
                                 {isApproving && statusUpdatingId === b.id ? (
                                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                                 ) : (
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                 )}
-                                <span>Approve & Confirm</span>
+                                <span>Approve Booking</span>
                               </button>
                             )}
 
-                            {/* View Confirmation Email for confirmed bookings */}
-                            {isConfirmed && (
+                            {/* View Confirmation Email for approved bookings */}
+                            {isApproved && (
                               <>
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-black tracking-wide">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Approved</span>
+                                </span>
                                 <button
                                   onClick={() => handleViewConfirmationEmail(b)}
                                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 text-[11px] font-bold transition-colors cursor-pointer"
@@ -656,14 +872,13 @@ export const AdminModal: React.FC = () => {
                                 </button>
                                 <button
                                   onClick={() => {
-                                    closeAdminPanel();
                                     navigate(`/booking-confirmation?id=${b.id}`);
                                   }}
-                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 text-[11px] font-bold transition-colors cursor-pointer"
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 text-[11px] font-bold transition-colors cursor-pointer"
                                   title="Open public confirmation page"
                                 >
                                   <ExternalLink className="w-3.5 h-3.5" />
-                                  <span>Confirmation Page</span>
+                                  <span>Public Page</span>
                                 </button>
                               </>
                             )}
@@ -671,23 +886,23 @@ export const AdminModal: React.FC = () => {
                             {/* Status Select Dropdown */}
                             <div className="relative">
                               <select
-                                value={b.status}
+                                value={b.status === 'confirmed' ? 'approved' : b.status}
                                 disabled={statusUpdatingId === b.id}
                                 onChange={(e) =>
                                   handleStatusChange(b.id!, e.target.value as BookingStatus)
                                 }
                                 className={`text-xs font-bold px-3 py-1.5 pr-8 rounded-xl border focus:outline-none transition-all cursor-pointer ${
-                                  b.status === 'confirmed'
-                                    ? 'bg-blue-50 text-blue-700 border-blue-300'
+                                  b.status === 'approved' || b.status === 'confirmed'
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                                     : b.status === 'completed'
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                    ? 'bg-blue-50 text-blue-700 border-blue-300'
                                     : b.status === 'cancelled'
                                     ? 'bg-rose-50 text-rose-700 border-rose-300'
                                     : 'bg-amber-50 text-amber-700 border-amber-300'
                                 }`}
                               >
                                 <option value="pending">Pending</option>
-                                <option value="confirmed">Confirmed</option>
+                                <option value="approved">Approved</option>
                                 <option value="completed">Completed</option>
                                 <option value="cancelled">Cancelled</option>
                               </select>
@@ -823,7 +1038,7 @@ export const AdminModal: React.FC = () => {
                           </div>
                         )}
 
-                        {isConfirmed && (
+                        {isApproved && (
                           <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
                             <div className="flex items-center gap-1.5 text-emerald-700 font-bold">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />

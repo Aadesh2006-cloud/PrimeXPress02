@@ -372,7 +372,7 @@ export const updateBookingDetailsInSupabase = async (
   bookingId: string,
   updates: Partial<BookingRecord>
 ): Promise<void> => {
-  // Update local storage copy
+  // Update local storage copy immediately
   const locals = getStoredLocalBookings();
   const updated = locals.map((b) => (b.id === bookingId ? { ...b, ...updates } : b));
   localStorage.setItem(STORAGE_KEY_BOOKINGS, JSON.stringify(updated));
@@ -380,19 +380,28 @@ export const updateBookingDetailsInSupabase = async (
   const tableCandidates = ['bookings', 'booking'];
   for (const tableName of tableCandidates) {
     try {
-      const payload: Record<string, any> = {};
-      if (updates.status) payload.status = updates.status;
-      if (updates.approvedAt) {
-        payload.approved_at = updates.approvedAt;
-        payload.approvedAt = updates.approvedAt;
+      // Primary column to update is status
+      if (updates.status) {
+        const { error: statusErr } = await supabase
+          .from(tableName)
+          .update({ status: updates.status })
+          .eq('id', bookingId);
+
+        if (statusErr) {
+          console.warn(`Supabase status update error on table '${tableName}':`, statusErr.message);
+        } else {
+          console.log(`Supabase booking '${bookingId}' status successfully updated to '${updates.status}' in '${tableName}'`);
+        }
       }
-      if (updates.approvedBy) {
-        payload.approved_by = updates.approvedBy;
-        payload.approvedBy = updates.approvedBy;
+
+      // If additional notes updated
+      if (updates.additionalNotes !== undefined) {
+        try {
+          await supabase.from(tableName).update({ additional_notes: updates.additionalNotes }).eq('id', bookingId);
+        } catch {}
       }
-      await supabase.from(tableName).update(payload).eq('id', bookingId);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn(`Exception during Supabase update for table '${tableName}':`, err);
     }
   }
 };

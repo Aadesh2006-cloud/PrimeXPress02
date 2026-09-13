@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, LogIn, Eye, EyeOff, AlertCircle, Sparkles, ShieldCheck } from 'lucide-react';
-import { supabase } from '../supabaseClient.js';
+import { Mail, Lock, LogIn, Eye, EyeOff, AlertCircle, Sparkles, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { supabase, SUPABASE_PROJECT_ID } from '../supabaseClient.js';
 
 export const SignInPage: React.FC = () => {
   const navigate = useNavigate();
@@ -294,9 +294,17 @@ export const SignInPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 text-[11px] text-slate-500 flex items-center justify-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-[#00A8AD]" />
-          <span>Secured with Supabase Authentication</span>
+        <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 text-[11px] text-slate-600 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>
+              Connected: <strong className="font-mono text-slate-800">{SUPABASE_PROJECT_ID}</strong>
+            </span>
+          </div>
+          <div className="flex items-center gap-1 text-[#00A8AD] font-semibold">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Supabase Auth Active</span>
+          </div>
         </div>
       </div>
     </div>

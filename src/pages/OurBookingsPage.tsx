@@ -128,7 +128,7 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
       `LOCATION:${booking.address || 'Winnipeg, MB'}`,
       `DTSTART:${cleanDate}T${startTime}`,
       `DTEND:${cleanDate}T${endTime}`,
-      `STATUS:${booking.status === 'confirmed' ? 'CONFIRMED' : 'TENTATIVE'}`,
+      `STATUS:${booking.status === 'confirmed' || booking.status === 'approved' ? 'CONFIRMED' : 'TENTATIVE'}`,
       'END:VEVENT',
       'END:VCALENDAR',
     ].join('\r\n');
@@ -576,18 +576,18 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
  * Status Badge Component
  */
 const StatusBadge: React.FC<{ status?: BookingStatus }> = ({ status }) => {
-  if (status === 'confirmed') {
+  if (status === 'approved' || status === 'confirmed') {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[11px] font-extrabold">
-        <CheckCircle2 className="w-3 h-3 text-blue-600" />
-        <span>Confirmed & Scheduled</span>
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold">
+        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+        <span>Approved & Scheduled</span>
       </span>
     );
   }
   if (status === 'completed') {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold">
-        <Check className="w-3 h-3 text-emerald-600" />
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[11px] font-extrabold">
+        <Check className="w-3 h-3 text-blue-600" />
         <span>Service Completed</span>
       </span>
     );
@@ -627,14 +627,14 @@ const BookingStatusCard: React.FC<BookingStatusCardProps> = ({
   onOpenQuoteModal,
 }) => {
   const isPending = !booking.status || booking.status === 'pending';
-  const isConfirmed = booking.status === 'confirmed';
+  const isApproved = booking.status === 'approved' || booking.status === 'confirmed';
   const isCompleted = booking.status === 'completed';
   const isCancelled = booking.status === 'cancelled';
 
-  // Determine active step index: 1 (Submitted), 2 (Review), 3 (Confirmed), 4 (Completed)
+  // Determine active step index: 1 (Submitted), 2 (Review), 3 (Approved/Confirmed), 4 (Completed)
   let activeStep = 1;
   if (isPending) activeStep = 2;
-  if (isConfirmed) activeStep = 3;
+  if (isApproved) activeStep = 3;
   if (isCompleted) activeStep = 4;
 
   return (
@@ -644,10 +644,10 @@ const BookingStatusCard: React.FC<BookingStatusCardProps> = ({
         className={`px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
           isPending
             ? 'bg-amber-50/80 border-amber-200 text-amber-900'
-            : isConfirmed
-            ? 'bg-blue-50/80 border-blue-200 text-blue-900'
-            : isCompleted
+            : isApproved
             ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+            : isCompleted
+            ? 'bg-blue-50/80 border-blue-200 text-blue-900'
             : 'bg-rose-50/80 border-rose-200 text-rose-900'
         }`}
       >
@@ -656,16 +656,16 @@ const BookingStatusCard: React.FC<BookingStatusCardProps> = ({
             className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
               isPending
                 ? 'bg-amber-200 text-amber-900'
-                : isConfirmed
-                ? 'bg-blue-200 text-blue-900'
-                : isCompleted
+                : isApproved
                 ? 'bg-emerald-200 text-emerald-900'
+                : isCompleted
+                ? 'bg-blue-200 text-blue-900'
                 : 'bg-rose-200 text-rose-900'
             }`}
           >
             {isPending ? (
               <Clock3 className="w-5 h-5 animate-pulse" />
-            ) : isConfirmed ? (
+            ) : isApproved ? (
               <CheckCircle2 className="w-5 h-5" />
             ) : isCompleted ? (
               <Check className="w-5 h-5" />
@@ -684,7 +684,7 @@ const BookingStatusCard: React.FC<BookingStatusCardProps> = ({
             <p className="text-xs font-medium opacity-90 mt-0.5">
               {isPending &&
                 'Your request has been logged. Our dispatch administrator is currently reviewing truck schedules.'}
-              {isConfirmed &&
+              {isApproved &&
                 'Approved by Administrator! Your appointment is locked into our Winnipeg service schedule.'}
               {isCompleted &&
                 'Service has been completed to hospital-grade sanitization standards.'}
@@ -748,15 +748,15 @@ const BookingStatusCard: React.FC<BookingStatusCardProps> = ({
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto text-xs font-bold shadow-xs ${
                   activeStep >= 3
-                    ? isConfirmed
-                      ? 'bg-blue-600 text-white ring-4 ring-blue-200'
+                    ? isApproved
+                      ? 'bg-emerald-600 text-white ring-4 ring-emerald-200'
                       : 'bg-emerald-500 text-white'
                     : 'bg-slate-200 text-slate-500'
                 }`}
               >
                 {activeStep > 3 ? <Check className="w-4 h-4" /> : '3'}
               </div>
-              <div className="text-[11px] font-bold text-[#063F4D]">Confirmed</div>
+              <div className="text-[11px] font-bold text-[#063F4D]">Approved</div>
               <div className="text-[10px] text-slate-500 hidden sm:block">Truck Assigned</div>
             </div>
 
