@@ -11,6 +11,7 @@ import { ResidentialCommercial } from '../components/ResidentialCommercial';
 import { LocalWinnipeg } from '../components/LocalWinnipeg';
 import { Testimonials } from '../components/Testimonials';
 import { AboutSection } from '../components/AboutSection';
+import { HomeFAQ } from '../components/HomeFAQ';
 import { StrongCTA } from '../components/StrongCTA';
 import { QuoteSection } from '../components/QuoteSection';
 import { PropertyType } from '../types';
@@ -152,6 +153,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onOpenQuoteModal }) => {
 
       {/* About Section */}
       <AboutSection onOpenQuoteModal={() => onOpenQuoteModal()} />
+
+      {/* Frequently Asked Questions (FAQ) Section */}
+      <HomeFAQ onOpenQuoteModal={() => onOpenQuoteModal()} />
 
       {/* Strong CTA Banner */}
       <StrongCTA onOpenQuoteModal={() => onOpenQuoteModal()} />
