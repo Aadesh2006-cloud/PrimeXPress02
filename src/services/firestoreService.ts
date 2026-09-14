@@ -14,7 +14,9 @@ import {
   findBookingsByQuery,
   getDeletedBookingIds,
   markBookingAsPermanentlyDeleted,
+  deduplicateBookings,
 } from './supabaseService';
+import { calculateBookingAmount, getBookingAmount } from '../utils/bookingPricing';
 import { BookingRecord, BookingStatus, ReviewRecord } from '../types';
 import {
   dispatchNewBookingNotification,
@@ -44,7 +46,10 @@ export {
   findBookingsByQuery,
   updateBookingDetailsInSupabase,
   getDeletedBookingIds,
-  markBookingAsPermanentlyDeleted
+  markBookingAsPermanentlyDeleted,
+  deduplicateBookings,
+  calculateBookingAmount,
+  getBookingAmount,
 };
 
 /**
@@ -57,9 +62,15 @@ export const saveBooking = async (
   booking: Omit<BookingRecord, 'id' | 'createdAt'>
 ): Promise<string> => {
   const normalizedEmail = (booking.customerEmail || '').trim().toLowerCase();
+  const amount = calculateBookingAmount(
+    booking.serviceType,
+    booking.propertyType,
+    booking.estimatedPriceCAD
+  );
   const normalizedBooking = {
     ...booking,
     customerEmail: normalizedEmail,
+    estimatedPriceCAD: amount,
     status: (booking.status || 'pending') as BookingStatus,
   };
 
@@ -238,7 +249,7 @@ export const getUserBookings = async (
     return matchesEmail || matchesUser;
   });
 
-  return valid.sort(
+  return deduplicateBookings(valid).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 };

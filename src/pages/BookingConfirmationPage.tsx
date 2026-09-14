@@ -23,7 +23,7 @@ import {
   Wrench,
   AlertCircle
 } from 'lucide-react';
-import { getBookingById, findBookingsByQuery, getStoredLocalBookings } from '../services/firestoreService';
+import { getBookingById, findBookingsByQuery, getStoredLocalBookings, calculateBookingAmount } from '../services/firestoreService';
 import { BookingRecord } from '../types';
 import { COMPANY_INFO } from '../data/cleaningData';
 import { useAuth } from '../contexts/AuthContext';
@@ -436,21 +436,24 @@ export const BookingConfirmationPage: React.FC<BookingConfirmationPageProps> = (
                       </div>
                     </div>
 
-                    {booking.estimatedPriceCAD && (
-                      <div className="p-3.5 rounded-xl bg-[#BFEDEE]/30 border border-[#00A8AD]/20 flex items-center justify-between">
-                        <div>
-                          <span className="text-[10px] uppercase font-bold text-[#063F4D]/70 block">
-                            Estimated Investment
-                          </span>
-                          <span className="text-lg font-black text-[#063F4D]">
-                            ${booking.estimatedPriceCAD} CAD
+                    {(() => {
+                      const amount = calculateBookingAmount(booking.serviceType, booking.propertyType, booking.estimatedPriceCAD);
+                      return (
+                        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-emerald-800 block">
+                              Amount of Booking
+                            </span>
+                            <span className="text-xl font-black text-emerald-950">
+                              ${amount.toFixed(2)} CAD
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold text-emerald-800 bg-white border border-emerald-200 px-2.5 py-1 rounded-md shadow-2xs">
+                            Guaranteed Fixed Rate
                           </span>
                         </div>
-                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-1 rounded-md">
-                          Fixed Upfront Guarantee
-                        </span>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </div>
 

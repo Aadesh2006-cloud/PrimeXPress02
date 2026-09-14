@@ -27,7 +27,13 @@ import {
 } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { COMPANY_INFO } from '../data/cleaningData';
-import { findBookingsByQuery, getUserBookings, syncConsumerBookings } from '../services/firestoreService';
+import {
+  findBookingsByQuery,
+  getUserBookings,
+  syncConsumerBookings,
+  calculateBookingAmount,
+  deduplicateBookings,
+} from '../services/firestoreService';
 import { BookingRecord, BookingStatus } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -60,14 +66,15 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
     setIsLoadingUserBookings(true);
     try {
       const records = await getUserBookings(user.uid, user.email);
-      setUserBookings(records || []);
+      const cleanRecords = deduplicateBookings(records || []);
+      setUserBookings(cleanRecords);
 
       // Background live sync for status updates
-      const bookingIds = (records || []).map((b) => b.id).filter(Boolean) as string[];
+      const bookingIds = cleanRecords.map((b) => b.id).filter(Boolean) as string[];
       if (bookingIds.length > 0) {
         const synced = await syncConsumerBookings(bookingIds, user.email);
         if (synced && synced.length > 0) {
-          setUserBookings(synced);
+          setUserBookings(deduplicateBookings(synced));
         }
       }
     } catch (err) {
@@ -117,18 +124,31 @@ export const OurBookingsPage: React.FC<OurBookingsPageProps> = ({ onOpenQuoteMod
 
     try {
       const results = await findBookingsByQuery(q);
+      const dedupedResults = deduplicateBookings(results);
+
       if (user && !isAdmin) {
         const cleanUserEmail = (user.email || '').trim().toLowerCase();
         // Regular consumer: strictly filter so only their bookings or exact reference ID are viewable
-        const filtered = results.filter(
+        const filtered = dedupedResults.filter(
           (b) =>
             (cleanUserEmail && b.customerEmail?.trim().toLowerCase() === cleanUserEmail) ||
             (user.uid && b.userId === user.uid) ||
             (b.id && b.id.toLowerCase() === q.toLowerCase())
         );
         setSearchResults(filtered);
+      } else if (!user && !isAdmin) {
+        // Guest consumer: strictly filter so only their matching booking is viewable
+        const cleanQuery = q.toLowerCase();
+        const cleanQueryDigits = q.replace(/\D/g, '');
+        const filtered = dedupedResults.filter((b) => {
+          const matchId = b.id && b.id.toLowerCase() === cleanQuery;
+          const matchEmail = b.customerEmail && b.customerEmail.toLowerCase() === cleanQuery;
+          const matchPhone = cleanQueryDigits.length >= 7 && b.customerPhone && b.customerPhone.replace(/\D/g, '') === cleanQueryDigits;
+          return matchId || matchEmail || matchPhone;
+        });
+        setSearchResults(filtered);
       } else {
-        setSearchResults(results);
+        setSearchResults(dedupedResults);
       }
     } catch (err) {
       console.error('Error finding booking:', err);
@@ -773,6 +793,12 @@ const BookingStatusCard: React.FC<BookingStatusCardProps> = ({
   const isCompleted = booking.status === 'completed';
   const isCancelled = booking.status === 'cancelled';
 
+  const bookingAmount = calculateBookingAmount(
+    booking.serviceType,
+    booking.propertyType,
+    booking.estimatedPriceCAD
+  );
+
   // Determine active step index: 1 (Submitted), 2 (Review), 3 (Approved/Confirmed), 4 (Completed)
   let activeStep = 1;
   if (isPending) activeStep = 2;
@@ -836,21 +862,29 @@ const BookingStatusCard: React.FC<BookingStatusCardProps> = ({
           </div>
         </div>
 
-        {/* Copy Reference ID button */}
-        {booking.id && (
-          <button
-            onClick={() => onCopy(booking.id!)}
-            className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/80 hover:bg-white text-xs font-mono font-bold text-[#063F4D] border border-black/10 shadow-2xs transition-all cursor-pointer"
-            title="Click to copy Reference ID"
-          >
-            <span>{booking.id}</span>
-            {copiedId === booking.id ? (
-              <Check className="w-3.5 h-3.5 text-emerald-600" />
-            ) : (
-              <Copy className="w-3.5 h-3.5 text-slate-400" />
-            )}
-          </button>
-        )}
+        {/* Amount of Booking and Copy Reference ID */}
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/95 text-emerald-900 border border-emerald-300 shadow-2xs text-xs font-extrabold">
+            <span className="text-slate-500 font-bold text-[10px] uppercase">Amount:</span>
+            <span className="text-emerald-800">${bookingAmount.toFixed(2)} CAD</span>
+          </div>
+
+          {/* Copy Reference ID button */}
+          {booking.id && (
+            <button
+              onClick={() => onCopy(booking.id!)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/80 hover:bg-white text-xs font-mono font-bold text-[#063F4D] border border-black/10 shadow-2xs transition-all cursor-pointer"
+              title="Click to copy Reference ID"
+            >
+              <span>{booking.id}</span>
+              {copiedId === booking.id ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <Copy className="w-3.5 h-3.5 text-slate-400" />
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Visual 4-Step Progress Stepper */}
@@ -951,6 +985,21 @@ const BookingStatusCard: React.FC<BookingStatusCardProps> = ({
                   <span>Window: <strong>{booking.preferredTimeSlot}</strong></span>
                 </div>
               )}
+            </div>
+
+            {/* Amount of Booking card */}
+            <div className="mt-3 p-3 rounded-2xl bg-emerald-50/90 border border-emerald-200 flex items-center justify-between shadow-2xs">
+              <div>
+                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+                  Amount of Booking
+                </span>
+                <span className="text-base font-black text-emerald-900">
+                  ${bookingAmount.toFixed(2)} CAD
+                </span>
+              </div>
+              <span className="text-[10px] text-emerald-800 font-bold bg-white px-2 py-0.5 rounded-md border border-emerald-200 shadow-2xs">
+                Pay On-Site
+              </span>
             </div>
           </div>
 

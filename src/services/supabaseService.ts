@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { BookingRecord, BookingStatus, ReviewRecord } from '../types';
 import { deleteNotificationByBookingId } from './notificationService';
+import { calculateBookingAmount } from '../utils/bookingPricing';
 
 const STORAGE_KEY_BOOKINGS = 'pxc_local_bookings';
 const STORAGE_KEY_REVIEWS = 'pxc_local_reviews';
@@ -36,6 +37,98 @@ export const markBookingAsPermanentlyDeleted = (bookingId: string): void => {
 };
 
 /**
+ * Deduplicate booking records to guarantee every booking appears strictly once.
+ * Handles duplicate records caused by dual-backends (Supabase + Firestore)
+ * or local storage cache discrepancies.
+ */
+export const deduplicateBookings = (records: BookingRecord[]): BookingRecord[] => {
+  if (!records || !Array.isArray(records)) return [];
+
+  const result: BookingRecord[] = [];
+
+  for (const b of records) {
+    if (!b) continue;
+    const bId = (b.id || '').trim();
+
+    // 1. Exact ID match (case-insensitive)
+    const existingByIdIndex = result.findIndex(
+      (r) => r.id && bId && r.id.toLowerCase() === bId.toLowerCase()
+    );
+    if (existingByIdIndex !== -1) {
+      const existing = result[existingByIdIndex];
+      const isBetter =
+        (b.status === 'approved' || b.status === 'confirmed') &&
+        existing.status !== 'approved' &&
+        existing.status !== 'confirmed';
+      if (isBetter || (!existing.estimatedPriceCAD && b.estimatedPriceCAD)) {
+        result[existingByIdIndex] = { ...existing, ...b };
+      }
+      continue;
+    }
+
+    // 2. Content fingerprint match:
+    // Same customer email (or phone), same service type, and either same preferred date or created within 1 hour
+    const existingFingerprintIndex = result.findIndex((r) => {
+      const emailA = (r.customerEmail || '').trim().toLowerCase();
+      const emailB = (b.customerEmail || '').trim().toLowerCase();
+      const sameEmail = emailA && emailB && emailA === emailB;
+
+      const phoneA = (r.customerPhone || '').replace(/\D/g, '');
+      const phoneB = (b.customerPhone || '').replace(/\D/g, '');
+      const samePhone =
+        phoneA && phoneB && phoneA.length >= 7 && (phoneA === phoneB || phoneA.endsWith(phoneB) || phoneB.endsWith(phoneA));
+
+      if (!sameEmail && !samePhone) return false;
+
+      const serviceA = (r.serviceType || '').trim().toLowerCase();
+      const serviceB = (b.serviceType || '').trim().toLowerCase();
+      const sameService =
+        serviceA === serviceB ||
+        serviceA.includes(serviceB) ||
+        serviceB.includes(serviceA);
+
+      if (!sameService) return false;
+
+      const dateA = (r.preferredDate || '').trim();
+      const dateB = (b.preferredDate || '').trim();
+      const sameDate = Boolean(dateA && dateB && dateA === dateB);
+
+      const timeA = new Date(r.createdAt || 0).getTime();
+      const timeB = new Date(b.createdAt || 0).getTime();
+      const closeInTime = !isNaN(timeA) && !isNaN(timeB) && Math.abs(timeA - timeB) < 1000 * 60 * 90; // within 90 minutes
+
+      return sameDate || closeInTime;
+    });
+
+    if (existingFingerprintIndex !== -1) {
+      const existing = result[existingFingerprintIndex];
+      const bHasOfficialId = bId && !bId.startsWith('sb_bk_');
+      const existingHasOfficialId = existing.id && !existing.id.startsWith('sb_bk_');
+      const bIsApproved = b.status === 'approved' || b.status === 'confirmed';
+
+      if (bIsApproved || (bHasOfficialId && !existingHasOfficialId)) {
+        result[existingFingerprintIndex] = {
+          ...existing,
+          ...b,
+          id: bHasOfficialId ? b.id : existing.id,
+        };
+      } else {
+        result[existingFingerprintIndex] = {
+          ...b,
+          ...existing,
+          id: existingHasOfficialId ? existing.id : (b.id || existing.id),
+        };
+      }
+      continue;
+    }
+
+    result.push(b);
+  }
+
+  return result;
+};
+
+/**
  * Filter out any bookings that have been deleted
  */
 const filterOutDeletedBookings = (records: BookingRecord[]): BookingRecord[] => {
@@ -49,23 +142,43 @@ const filterOutDeletedBookings = (records: BookingRecord[]): BookingRecord[] => 
   });
 };
 
-// Helper to get local bookings backup
+// Remove a specific local booking ID (e.g. temporary sb_bk_ record after database confirmation)
+export const removeLocalBookingById = (bookingId: string) => {
+  if (!bookingId) return;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_BOOKINGS);
+    const existing: BookingRecord[] = raw ? JSON.parse(raw) : [];
+    const filtered = existing.filter((b) => b.id !== bookingId);
+    localStorage.setItem(STORAGE_KEY_BOOKINGS, JSON.stringify(filtered));
+  } catch (e) {
+    console.warn('Could not remove booking from local storage:', e);
+  }
+};
+
+// Helper to get local bookings backup with automatic deduplication
 export const getStoredLocalBookings = (): BookingRecord[] => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_BOOKINGS);
     const parsed: BookingRecord[] = raw ? JSON.parse(raw) : [];
-    return filterOutDeletedBookings(parsed);
+    const filtered = filterOutDeletedBookings(parsed);
+    const deduped = deduplicateBookings(filtered);
+    if (deduped.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEY_BOOKINGS, JSON.stringify(deduped));
+    }
+    return deduped;
   } catch {
     return [];
   }
 };
 
-// Helper to save local bookings backup
+// Helper to save local bookings backup with deduplication
 export const saveLocalBookingRecord = (booking: BookingRecord) => {
   try {
     const existing = getStoredLocalBookings();
+    // Remove if same ID
     const filtered = existing.filter((b) => b.id !== booking.id);
-    localStorage.setItem(STORAGE_KEY_BOOKINGS, JSON.stringify([booking, ...filtered]));
+    const updated = deduplicateBookings([booking, ...filtered]);
+    localStorage.setItem(STORAGE_KEY_BOOKINGS, JSON.stringify(updated));
   } catch (e) {
     console.warn('Could not save booking to local storage:', e);
   }
@@ -78,18 +191,22 @@ export const saveLocalBookingRecord = (booking: BookingRecord) => {
 export const saveBookingToSupabase = async (
   booking: Omit<BookingRecord, 'id' | 'createdAt'>
 ): Promise<string> => {
-  const localId = 'sb_bk_' + Date.now().toString(36);
+  const localId = 'PXC-' + Math.floor(100000 + Math.random() * 900000);
   const now = new Date().toISOString();
   const normalizedEmail = (booking.customerEmail || '').trim().toLowerCase();
+  const amount = calculateBookingAmount(
+    booking.serviceType,
+    booking.propertyType,
+    booking.estimatedPriceCAD
+  );
+
   const newBookingRecord: BookingRecord = {
     ...booking,
     customerEmail: normalizedEmail,
+    estimatedPriceCAD: amount,
     id: localId,
     createdAt: now,
   };
-
-  // Keep local backup for instant client portal availability
-  saveLocalBookingRecord(newBookingRecord);
 
   // Payload with snake_case (standard Supabase / Postgres convention)
   const snakePayload: Record<string, any> = {
@@ -101,6 +218,7 @@ export const saveBookingToSupabase = async (
     address: booking.address,
     preferred_date: booking.preferredDate,
     preferred_time_slot: booking.preferredTimeSlot || null,
+    estimated_price_cad: amount,
     additional_notes: booking.additionalNotes || null,
     status: booking.status || 'pending',
     created_at: now,
@@ -119,6 +237,7 @@ export const saveBookingToSupabase = async (
     address: booking.address,
     preferredDate: booking.preferredDate,
     preferredTimeSlot: booking.preferredTimeSlot || null,
+    estimatedPriceCAD: amount,
     additionalNotes: booking.additionalNotes || null,
     status: booking.status || 'pending',
     createdAt: now,
@@ -174,8 +293,8 @@ export const saveBookingToSupabase = async (
     }
   }
 
-  // If table is not yet created in Supabase dashboard, return local ID so booking is never lost
-  console.info('Saved booking with local ID. To sync to Supabase, ensure the "bookings" table is created in Supabase SQL editor.');
+  // Fallback: save single local record with clean reference ID so booking is never lost
+  saveLocalBookingRecord(newBookingRecord);
   return localId;
 };
 
@@ -247,7 +366,7 @@ export const getUserBookingsFromSupabase = async (
       (cleanUserId && b.userId === cleanUserId)
   );
 
-  return validRecords.sort(
+  return deduplicateBookings(validRecords).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 };
@@ -288,7 +407,7 @@ export const getAllBookingsFromSupabase = async (): Promise<BookingRecord[]> => 
 
   const validRecords = filterOutDeletedBookings(merged);
 
-  return validRecords.sort(
+  return deduplicateBookings(validRecords).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 };
@@ -375,7 +494,7 @@ export const findBookingsByQuery = async (searchQuery: string): Promise<BookingR
 
   const validRecords = filterOutDeletedBookings(merged);
 
-  return validRecords.sort(
+  return deduplicateBookings(validRecords).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 };
@@ -484,7 +603,7 @@ export const syncConsumerBookings = async (
     return b.customerEmail?.trim().toLowerCase() === cleanEmail;
   });
 
-  return filterOutDeletedBookings(result).sort(
+  return deduplicateBookings(filterOutDeletedBookings(result)).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 };
@@ -509,42 +628,39 @@ export const updateBookingDetailsInSupabase = async (
   // Update local storage copy immediately
   const locals = getStoredLocalBookings();
   const updated = locals.map((b) => (b.id === bookingId ? { ...b, ...updates } : b));
-  localStorage.setItem(STORAGE_KEY_BOOKINGS, JSON.stringify(updated));
+  localStorage.setItem(STORAGE_KEY_BOOKINGS, JSON.stringify(deduplicateBookings(updated)));
 
   const tableCandidates = ['bookings', 'booking'];
   for (const tableName of tableCandidates) {
     try {
-      // Primary column to update is status
-      if (updates.status) {
-        const { error: statusErr } = await supabase
-          .from(tableName)
-          .update({ status: updates.status })
-          .eq('id', bookingId);
+      // snake_case updates
+      const snakeUpdates: Record<string, any> = {};
+      if (updates.status) snakeUpdates.status = updates.status;
+      if (updates.preferredDate) snakeUpdates.preferred_date = updates.preferredDate;
+      if (updates.preferredTimeSlot) snakeUpdates.preferred_time_slot = updates.preferredTimeSlot;
+      if (updates.estimatedPriceCAD !== undefined) snakeUpdates.estimated_price_cad = updates.estimatedPriceCAD;
+      if (updates.additionalNotes) snakeUpdates.additional_notes = updates.additionalNotes;
+      if (updates.approvedAt) snakeUpdates.approved_at = updates.approvedAt;
+      if (updates.approvedBy) snakeUpdates.approved_by = updates.approvedBy;
 
-        if (statusErr) {
-          console.warn(`Supabase status update error on table '${tableName}':`, statusErr.message);
-        } else {
-          console.log(`Supabase booking '${bookingId}' status successfully updated to '${updates.status}' in '${tableName}'`);
-        }
-      }
-
-      // If additional notes updated
-      if (updates.additionalNotes !== undefined) {
-        try {
-          await supabase.from(tableName).update({ additional_notes: updates.additionalNotes }).eq('id', bookingId);
-        } catch {}
-      }
-    } catch (err) {
-      console.warn(`Exception during Supabase update for table '${tableName}':`, err);
+      await supabase.from(tableName).update(snakeUpdates).eq('id', bookingId);
+      break;
+    } catch {
+      // try next
     }
   }
 
-  // Broadcast update event so open consumer views and modals react immediately
-  window.dispatchEvent(
-    new CustomEvent('pxc-booking-updated', {
-      detail: { bookingId, updates }
-    })
-  );
+  // Also update Firestore if reachable
+  try {
+    const { doc, updateDoc } = await import('firebase/firestore');
+    const { db } = await import('../lib/firebase');
+    await updateDoc(doc(db, 'bookings', bookingId), {
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch {}
+
+  window.dispatchEvent(new CustomEvent('pxc-booking-updated', { detail: { bookingId } }));
 };
 
 /**
@@ -687,19 +803,32 @@ export const getReviewsFromSupabase = async (): Promise<ReviewRecord[]> => {
  * Map raw database row (snake_case or camelCase) to standard BookingRecord
  */
 function mapRowToBookingRecord(row: any): BookingRecord {
+  const serviceType = row.service_type || row.serviceType || 'Air Duct Cleaning';
+  const propertyType = row.property_type || row.propertyType || 'Residential';
+  const rawPrice = Number(row.estimated_price_cad ?? row.estimatedPriceCAD ?? row.amount ?? row.price);
+  const estimatedPriceCAD = calculateBookingAmount(
+    serviceType,
+    propertyType,
+    !isNaN(rawPrice) && rawPrice > 0 ? rawPrice : undefined
+  );
+
   return {
     id: String(row.id),
     userId: row.user_id || row.userId || undefined,
     customerName: row.customer_name || row.customerName || 'Customer',
     customerEmail: row.customer_email || row.customerEmail || '',
     customerPhone: row.customer_phone || row.customerPhone || '',
-    serviceType: row.service_type || row.serviceType || 'Air Duct Cleaning',
-    propertyType: row.property_type || row.propertyType || 'Residential',
+    serviceType,
+    propertyType,
     address: row.address || '',
     preferredDate: row.preferred_date || row.preferredDate || '',
     preferredTimeSlot: row.preferred_time_slot || row.preferredTimeSlot || undefined,
+    estimatedPriceCAD,
     additionalNotes: row.additional_notes || row.additionalNotes || undefined,
     status: (row.status as BookingStatus) || 'pending',
     createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+    approvedAt: row.approved_at || row.approvedAt || undefined,
+    approvedBy: row.approved_by || row.approvedBy || undefined,
+    consumerConfirmationSent: row.consumer_confirmation_sent || row.consumerConfirmationSent || false,
   };
 }

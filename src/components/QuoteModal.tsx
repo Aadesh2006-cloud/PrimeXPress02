@@ -5,6 +5,7 @@ import { COMPANY_INFO } from '../data/cleaningData';
 import { PropertyType, ServiceType } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { saveBooking } from '../services/firestoreService';
+import { calculateBookingAmount } from '../utils/bookingPricing';
 
 interface QuoteModalProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({ isOpen, onClose, default
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [bookingDbId, setBookingDbId] = useState<string | null>(null);
+  const [calculatedAmount, setCalculatedAmount] = useState<number>(0);
 
   // Initialize fields when modal opens, linking to user Gmail if logged in
   useEffect(() => {
@@ -45,6 +47,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({ isOpen, onClose, default
       setNotes('');
       setSubmitted(false);
       setBookingDbId(null);
+      setCalculatedAmount(calculateBookingAmount(defaultService || 'Residential Air Duct Cleaning', 'Residential'));
     }
   }, [isOpen, defaultService, user]);
 
@@ -56,6 +59,9 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({ isOpen, onClose, default
 
     try {
       const finalEmail = (email || user?.email || '').trim().toLowerCase();
+      const amount = calculateBookingAmount(selectedService, propertyType);
+      setCalculatedAmount(amount);
+
       const docId = await saveBooking({
         userId: user ? user.uid : undefined,
         customerName: fullName.trim(),
@@ -66,6 +72,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({ isOpen, onClose, default
         address: address.trim(),
         preferredDate: preferredDate,
         preferredTimeSlot: preferredTimeSlot,
+        estimatedPriceCAD: amount,
         additionalNotes: notes.trim(),
         status: 'pending',
       });
@@ -129,6 +136,18 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({ isOpen, onClose, default
                 Reference ID: {bookingDbId}
               </p>
             )}
+
+            {/* Amount of booking */}
+            <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-slate-800 max-w-sm mx-auto flex items-center justify-between shadow-xs">
+              <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4 text-emerald-600" />
+                Amount of Booking:
+              </span>
+              <span className="text-base font-extrabold text-emerald-800">
+                ${calculatedAmount.toFixed(2)} CAD
+              </span>
+            </div>
+
             <div className="p-4 rounded-2xl bg-[#F5F8F8] border border-slate-200 text-xs text-slate-700 max-w-sm mx-auto text-left space-y-2">
               <div className="flex items-start gap-2">
                 <Mail className="w-4 h-4 text-[#00A8AD] shrink-0 mt-0.5" />

@@ -20,6 +20,7 @@ import { COMPANY_INFO, WINNIPEG_NEIGHBORHOODS } from '../data/cleaningData';
 import { PropertyType, ServiceType } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { saveBooking } from '../services/firestoreService';
+import { calculateBookingAmount } from '../utils/bookingPricing';
 
 interface QuoteSectionProps {
   initialService?: string;
@@ -47,6 +48,7 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [bookingId, setBookingId] = useState<string | null>(null);
+  const [calculatedAmount, setCalculatedAmount] = useState<number>(0);
 
   const availableServices: ServiceType[] = [
     'Air Duct Cleaning',
@@ -93,16 +95,21 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
     setSubmitting(true);
     try {
       const finalEmail = (email || user?.email || '').trim().toLowerCase();
+      const serviceStr = selectedServices.length > 0 ? selectedServices.join(', ') : 'Residential Air Duct Cleaning';
+      const amount = calculateBookingAmount(serviceStr, propertyType);
+      setCalculatedAmount(amount);
+
       const docId = await saveBooking({
         userId: user ? user.uid : undefined,
         customerName: fullName.trim(),
         customerEmail: finalEmail,
         customerPhone: phone.trim(),
-        serviceType: selectedServices.join(', '),
+        serviceType: serviceStr,
         propertyType: propertyType,
         address: address.trim(),
         preferredDate: preferredDate,
         preferredTimeSlot: timeSlot,
+        estimatedPriceCAD: amount,
         additionalNotes: message.trim(),
         status: 'pending',
       });
@@ -154,6 +161,17 @@ export const QuoteSection: React.FC<QuoteSectionProps> = ({
                       Booking Reference: {bookingId}
                     </div>
                   )}
+
+                  {/* Amount of Booking */}
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-slate-800 max-w-md mx-auto flex items-center justify-between shadow-xs">
+                    <span className="font-bold text-emerald-900 flex items-center gap-1.5">
+                      <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      Amount of Booking:
+                    </span>
+                    <span className="text-base font-extrabold text-emerald-800">
+                      ${calculatedAmount.toFixed(2)} CAD
+                    </span>
+                  </div>
 
                   <div className="p-4 rounded-2xl bg-[#F5F8F8] border border-slate-200 text-xs text-slate-700 max-w-md mx-auto text-left space-y-2">
                     <div className="flex items-start gap-2">
