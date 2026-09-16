@@ -1,6 +1,7 @@
 import { privateStorage } from './privateData';
 import { BookingRecord, AdminNotification } from '../types';
 import { COMPANY_INFO } from '../data/cleaningData';
+import { createMailto } from '../utils/mailto';
 
 const NOTIFICATIONS_STORAGE_KEY = 'pxc_admin_notifications';
 const MAIL_DISPATCH_LOG_KEY = 'pxc_mail_dispatch_logs';
@@ -151,7 +152,7 @@ To approve:
 Prime X-Press Cleaning Inc. Dispatch Center
 Winnipeg, Manitoba | ${COMPANY_INFO.primaryPhone}`;
 
-  const mailtoUrl = `mailto:${MASTER_ADMIN_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const mailtoUrl = createMailto(MASTER_ADMIN_EMAIL, subject, body);
 
   return {
     to: MASTER_ADMIN_EMAIL,
@@ -199,9 +200,7 @@ Thank you for choosing Prime X-Press Cleaning Inc.!
 Fresher • Cleaner • Healthier
 https://primexpresscleaning.ca`;
 
-  const mailtoUrl = recipient
-    ? `mailto:${recipient}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-    : '';
+  const mailtoUrl = createMailto(recipient, subject, body);
 
   return {
     to: recipient,

@@ -49,6 +49,10 @@ Direct anonymous booking SELECT/UPDATE/INSERT and authenticated INSERT are revok
 3. The owner creates and confirms `primexpress33@gmail.com` with a new password entered privately. Grant the role only after verifying that exact account, using [admin_access.sql](../supabase/admin_access.sql). No public signup can create an admin role.
 4. Verify anonymous REST booking access is denied and an authenticated admin can access its portal. Review [Vercel headers](https://vercel.com/docs/project-configuration/vercel-json#headers), including the inline JSON-LD script hash, when changing domains or HTML.
 
+On 16 September 2026, the live project was verified with email confirmation enabled, a 12-character password minimum, secure email changes and secure password changes enabled, and anonymous sign-ins disabled. Leaked-password protection remains unavailable on its current plan; the dashboard requires Pro or above. Google OAuth is not configured.
+
+Vercel install and build commands explicitly select Bun 1.4.2. Its older bundled Bun could not parse the version-2 lockfile, even though the repository declares its package manager version. Keep the explicit version synchronized with `package.json` and the security workflow.
+
 The original database permitted unauthenticated ownership/approval edits. On first application, the migration records every existing booking ID in `private.legacy_booking_quarantine`. Original data remains visible to admins but cannot establish customer ownership or verified-review eligibility. Reapplying the migration does not quarantine new bookings. An owner must reconcile each historical row against trusted business records before correcting ownership/approval fields and removing that ID from quarantine. The migration does not assert that the historical records were actually tampered with.
 
 ## Operational limits
@@ -57,6 +61,6 @@ The original database permitted unauthenticated ownership/approval edits. On fir
 - Guest throttling is five submissions per email per hour, not a global/IP anti-bot system. Production abuse protection should include an edge/WAF or CAPTCHA strategy.
 - The original Firestore rules allow broad access. The repository now contains deny-all rules, but applying Supabase SQL does not deploy Firestore rules. Check and lock the old Firebase project separately if it was used.
 - The old exposed admin password must be considered compromised wherever it was reused. Removing it from current code cannot erase copies or Git history.
-- Booking mail helpers prepare drafts; they are not an authenticated backend email-delivery service.
+- Booking mail helpers prepare drafts; they are not an authenticated backend email-delivery service. Recipient addresses are validated as one mailbox and URL-encoded so customer input cannot inject extra recipients or mail headers.
 
-Local regression tests cover failed login, email confirmation, private grants, customer isolation, active-session revocation, guest tokens, historical-row quarantine, review verification and spreadsheet formula injection. A passing scan is not proof that all possible vulnerabilities have been found.
+Local regression tests cover failed login, email confirmation, private grants, customer isolation, active-session revocation, guest tokens, historical-row quarantine, review verification, spreadsheet formula injection and mailto recipient/header injection. A passing scan is not proof that all possible vulnerabilities have been found.

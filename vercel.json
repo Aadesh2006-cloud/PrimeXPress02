@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "installCommand": "bun install --frozen-lockfile --ignore-scripts",
-  "buildCommand": "bun run build",
+  "installCommand": "npx --yes bun@1.4.2 install --frozen-lockfile --ignore-scripts",
+  "buildCommand": "npx --yes bun@1.4.2 run build",
   "outputDirectory": "dist",
   "rewrites": [
     {

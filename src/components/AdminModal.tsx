@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { csvCell } from '../utils/csv';
+import { createMailto } from '../utils/mailto';
 import {
   X,
   ShieldCheck,
@@ -965,7 +966,7 @@ export const AdminModal: React.FC = () => {
                               <div className="flex items-center gap-2">
                                 <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                 <a
-                                  href={`mailto:${b.customerEmail}`}
+                                  href={createMailto(b.customerEmail) || undefined}
                                   className="text-slate-600 hover:underline truncate"
                                 >
                                   {b.customerEmail}
