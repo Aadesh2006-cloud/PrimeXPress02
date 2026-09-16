@@ -61,7 +61,7 @@ export const SignUpPage: React.FC = () => {
       const result = await registerWithEmail(email.trim(), password, trimmedName);
       if (result.success && result.requiresEmailConfirmation) {
         setPassword('');
-        setError('Check your inbox to confirm your email address, then sign in.');
+        setError('Check your inbox to verify your email once. After verification, sign in with just your email and password.');
       } else if (result.success) {
         navigate('/');
       } else {

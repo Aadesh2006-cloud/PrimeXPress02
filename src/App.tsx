@@ -27,6 +27,7 @@ import { OurBookingsPage } from './pages/OurBookingsPage';
 import { BookingConfirmationPage } from './pages/BookingConfirmationPage';
 import { SignInPage } from './pages/SignInPage';
 import { SignUpPage } from './pages/SignUpPage';
+import { PrivacyPage, TermsPage, SupportPage, CompanyInfoPage } from './pages/InformationPages';
 
 export default function App() {
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
@@ -65,6 +66,10 @@ export default function App() {
               <Route path="/about" element={<AboutPage onOpenQuoteModal={handleOpenQuoteModal} />} />
               <Route path="/service-area" element={<ServiceAreaPage onOpenQuoteModal={handleOpenQuoteModal} />} />
               <Route path="/contact" element={<ContactPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/support" element={<SupportPage />} />
+              <Route path="/company-info" element={<CompanyInfoPage />} />
               <Route path="/signin" element={<SignInPage />} />
               <Route path="/sign-in" element={<SignInPage />} />
               <Route path="/login" element={<SignInPage />} />

@@ -55,7 +55,7 @@ export const SignInPage: React.FC = () => {
       if (result.success) {
         navigate('/');
       } else {
-        setError(result.error || 'Invalid credentials. Please verify your email and password.');
+        setError(result.error || 'Unable to sign in. Check your email and password.');
       }
     } catch (err: any) {
       setError(err?.message || 'An unexpected error occurred during sign in.');

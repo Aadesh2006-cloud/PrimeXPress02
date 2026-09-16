@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Home, Sparkles, Phone, MapPin, Instagram, Mail, ArrowUp, ShieldCheck, Lock, Bell } from 'lucide-react';
 import { COMPANY_INFO } from '../data/cleaningData';
+import { SUPPORT_EMAIL } from '../data/companyInfo';
 import { useAuth } from '../contexts/AuthContext';
 import { getUnreadNotificationCount } from '../services/notificationService';
 
@@ -232,6 +233,16 @@ export const Footer: React.FC<FooterProps> = ({ onOpenQuoteModal }) => {
             </div>
           </div>
         </div>
+
+        <nav aria-label="Footer information" className="flex flex-wrap items-center gap-x-6 gap-y-4 py-6 border-b border-white/10 text-sm text-slate-300">
+          <Link to="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
+          <Link to="/terms" className="hover:text-white transition-colors">Terms</Link>
+          <Link to="/support" className="hover:text-white transition-colors">Support</Link>
+          <Link to="/company-info" className="hover:text-white transition-colors">Company Info</Link>
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="inline-flex items-center gap-2 hover:text-white transition-colors break-all">
+            <Mail className="w-4 h-4 text-[#00A8AD] shrink-0" />{SUPPORT_EMAIL}
+          </a>
+        </nav>
 
         {/* Bottom Row */}
         <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">

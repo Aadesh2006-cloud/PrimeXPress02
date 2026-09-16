@@ -25,7 +25,10 @@ export async function signIn(client: SupabaseClient, email: string, password: st
     const { data, error } = await client.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     if (error || !data.session || !isVerifiedUser(data.user)) {
       if (data.session) await client.auth.signOut({ scope: 'local' });
-      return { success: false, error: 'Unable to sign in. Check your email and password and confirm your email address.' };
+      const unconfirmed = error?.code === 'email_not_confirmed' || (!error && data.user && !data.user.email_confirmed_at);
+      return { success: false, error: unconfirmed
+        ? 'Please verify your email using the sign-up confirmation email. You only need to do this once for this email address.'
+        : 'Unable to sign in. Check your email and password.' };
     }
     return { success: true };
   } catch { return { success: false, error: 'Unable to sign in. Please try again.' }; }

@@ -13,6 +13,20 @@ function client(overrides: any = {}) {
   return { auth, rpc: overrides.rpc || (async () => ({ data: false, error: null })), get signOuts(){return signOuts;}, get submitted(){return submitted;} } as any;
 }
 describe('Supabase authentication fails closed', () => {
+  it('verified customers can sign in repeatedly without a new email challenge', async () => {
+    const c = client();
+    for (let i = 0; i < 2; i++) {
+      assert.deepEqual(await signIn(c, 'customer@example.test', 'a password'), { success: true });
+    }
+    assert.equal(c.signOuts, 0);
+    assert.equal(c.submitted, undefined);
+  });
+  it('only unconfirmed email errors ask for initial verification', async () => {
+    const pending = client({ auth: { signInWithPassword: async () => ({ data: {}, error: { code: 'email_not_confirmed' } }) } });
+    assert.match((await signIn(pending, 'customer@example.test', 'a password')).error!, /verify your email/);
+    const wrong = client({ auth: { signInWithPassword: async () => ({ data: {}, error: { code: 'invalid_credentials' } }) } });
+    assert.doesNotMatch((await signIn(wrong, 'customer@example.test', 'wrong password')).error!, /verify|confirm/);
+  });
   it('accepts a confirmed user with a real session', async () => assert.equal((await signIn(client(), 'customer@example.test','a password')).success,true));
   it('rejects incorrect credentials without local fallback', async () => {
     const c = client({ auth: { signInWithPassword: async () => ({ data: {}, error: { message: 'Invalid login credentials' } }) } });
