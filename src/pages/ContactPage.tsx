@@ -83,7 +83,7 @@ export const ContactPage: React.FC = () => {
       window.dispatchEvent(new CustomEvent('pxc-booking-updated'));
     } catch (err) {
       console.error('Error saving contact booking:', err);
-      setSubmitted(true);
+      window.alert('Unable to submit your booking. Please try again.');
     } finally {
       setSubmitting(false);
     }

@@ -1,3 +1,4 @@
+import { privateStorage } from './privateData';
 import { BookingRecord, AdminNotification } from '../types';
 import { COMPANY_INFO } from '../data/cleaningData';
 
@@ -58,7 +59,7 @@ export const playNotificationChime = () => {
  */
 export const getAdminNotifications = (): AdminNotification[] => {
   try {
-    const stored = localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+    const stored = privateStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
     if (!stored) return [];
     const parsed = JSON.parse(stored);
     return Array.isArray(parsed) ? parsed : [];
@@ -81,7 +82,7 @@ export const getUnreadNotificationCount = (): number => {
 export const markNotificationAsRead = (notificationId: string): void => {
   const list = getAdminNotifications();
   const updated = list.map((n) => (n.id === notificationId ? { ...n, read: true } : n));
-  localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
+  privateStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('pxc-notifications-updated'));
 };
 
@@ -91,7 +92,7 @@ export const markNotificationAsRead = (notificationId: string): void => {
 export const markAllNotificationsAsRead = (): void => {
   const list = getAdminNotifications();
   const updated = list.map((n) => ({ ...n, read: true }));
-  localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
+  privateStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('pxc-notifications-updated'));
 };
 
@@ -101,7 +102,7 @@ export const markAllNotificationsAsRead = (): void => {
 export const deleteNotification = (notificationId: string): void => {
   const list = getAdminNotifications();
   const updated = list.filter((n) => n.id !== notificationId);
-  localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
+  privateStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('pxc-notifications-updated'));
 };
 
@@ -111,7 +112,7 @@ export const deleteNotification = (notificationId: string): void => {
 export const deleteNotificationByBookingId = (bookingId: string): void => {
   const list = getAdminNotifications();
   const updated = list.filter((n) => n.bookingId !== bookingId);
-  localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
+  privateStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('pxc-notifications-updated'));
 };
 
@@ -215,7 +216,7 @@ https://primexpresscleaning.ca`;
  */
 const logMailDispatch = (log: Omit<EmailDispatchLog, 'id' | 'timestamp'>) => {
   try {
-    const stored = localStorage.getItem(MAIL_DISPATCH_LOG_KEY);
+    const stored = privateStorage.getItem(MAIL_DISPATCH_LOG_KEY);
     const list: EmailDispatchLog[] = stored ? JSON.parse(stored) : [];
     const newEntry: EmailDispatchLog = {
       ...log,
@@ -223,7 +224,7 @@ const logMailDispatch = (log: Omit<EmailDispatchLog, 'id' | 'timestamp'>) => {
       timestamp: new Date().toISOString(),
     };
     list.unshift(newEntry);
-    localStorage.setItem(MAIL_DISPATCH_LOG_KEY, JSON.stringify(list.slice(0, 50)));
+    privateStorage.setItem(MAIL_DISPATCH_LOG_KEY, JSON.stringify(list.slice(0, 50)));
   } catch (err) {
     console.error('Error logging mail dispatch:', err);
   }
@@ -232,7 +233,7 @@ const logMailDispatch = (log: Omit<EmailDispatchLog, 'id' | 'timestamp'>) => {
 /**
  * Trigger notification when a customer submits a booking:
  * 1. Logs notification to Admin Portal
- * 2. Prepares & dispatches email to primexpress33@gmail.com
+ * 2. Prepares an email draft to primexpress33@gmail.com
  * 3. Triggers notification event for active admin listeners
  */
 export const dispatchNewBookingNotification = (booking: BookingRecord): void => {
@@ -258,7 +259,7 @@ export const dispatchNewBookingNotification = (booking: BookingRecord): void => 
     // Avoid duplicate for same booking
     const filtered = currentList.filter((n) => n.bookingId !== booking.id);
     filtered.unshift(newNotif);
-    localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(filtered.slice(0, 100)));
+    privateStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(filtered.slice(0, 100)));
 
     // Generate & log email alert for admin
     const emailData = generateAdminBookingAlertEmail(booking);
@@ -268,7 +269,7 @@ export const dispatchNewBookingNotification = (booking: BookingRecord): void => 
       subject: emailData.subject,
       body: emailData.body,
       bookingId: booking.id || '',
-      delivered: true,
+      delivered: false,
     });
 
     // Play chime sound
@@ -299,7 +300,7 @@ export const processAdminBookingApproval = (
       ? { ...n, status: 'approved' as const, read: true, approvedAt: new Date().toISOString() }
       : n
   );
-  localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updatedList));
+  privateStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updatedList));
 
   // Generate confirmation email for the consumer
   const emailDetails = generateConsumerConfirmationEmail(booking);
@@ -311,7 +312,7 @@ export const processAdminBookingApproval = (
     subject: emailDetails.subject,
     body: emailDetails.body,
     bookingId: booking.id || '',
-    delivered: true,
+    delivered: false,
   });
 
   window.dispatchEvent(new CustomEvent('pxc-notifications-updated'));
@@ -324,7 +325,7 @@ export const processAdminBookingApproval = (
  */
 export const getMailDispatchLogs = (): EmailDispatchLog[] => {
   try {
-    const stored = localStorage.getItem(MAIL_DISPATCH_LOG_KEY);
+    const stored = privateStorage.getItem(MAIL_DISPATCH_LOG_KEY);
     return stored ? JSON.parse(stored) : [];
   } catch {
     return [];
