@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { csvCell } from '../utils/csv';
 import {
   X,
   ShieldCheck,
@@ -35,7 +36,7 @@ import {
   EyeOff,
   LogOut
 } from 'lucide-react';
-import { useAuth, MASTER_ADMIN_EMAIL, MASTER_ADMIN_PASS } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import {
   getAllBookings,
   updateBookingStatus,
@@ -63,6 +64,7 @@ export const AdminModal: React.FC = () => {
     isAdminLoggedIn,
     loginAdmin,
     logoutAdmin,
+    adminUser,
   } = useAuth();
 
   // Admin login form states
@@ -134,10 +136,13 @@ export const AdminModal: React.FC = () => {
       window.removeEventListener('pxc-booking-deleted', handleBookingDeleted);
       window.removeEventListener('storage', handleNewBooking);
     };
-  }, []);
+  }, [isAdminLoggedIn]);
 
   // Fetch bookings when modal opens and admin is authenticated
   useEffect(() => {
+    if (!isAdminLoggedIn) {
+      setBookings([]); setNotifications([]); setMailLogs([]); setSelectedBookingForApproval(null); setApprovalEmailData(null);
+    }
     if (isAdminPanelOpen && isAdminLoggedIn) {
       fetchBookings();
       refreshNotificationsState();
@@ -145,6 +150,7 @@ export const AdminModal: React.FC = () => {
   }, [isAdminPanelOpen, isAdminLoggedIn]);
 
   const fetchBookings = async () => {
+    if (!isAdminLoggedIn) return;
     setIsLoadingBookings(true);
     try {
       const data = await getAllBookings();
@@ -185,14 +191,14 @@ export const AdminModal: React.FC = () => {
     setStatusUpdatingId(booking.id);
 
     try {
-      const result = await approveBooking(booking, MASTER_ADMIN_EMAIL);
+      const result = await approveBooking(booking, (adminUser?.email || ''));
       if (result) {
         setApprovalEmailData(result.emailDetails);
         setSelectedBookingForApproval({
           ...booking,
           status: 'approved',
           approvedAt: new Date().toISOString(),
-          approvedBy: MASTER_ADMIN_EMAIL,
+          approvedBy: (adminUser?.email || ''),
           consumerConfirmationSent: true,
         });
 
@@ -204,7 +210,7 @@ export const AdminModal: React.FC = () => {
                   ...b,
                   status: 'approved',
                   approvedAt: new Date().toISOString(),
-                  approvedBy: MASTER_ADMIN_EMAIL,
+                  approvedBy: (adminUser?.email || ''),
                   consumerConfirmationSent: true,
                 }
               : b
@@ -238,9 +244,9 @@ export const AdminModal: React.FC = () => {
 
   const handleDeleteBooking = async (bookingId: string) => {
     try {
+      await deleteBooking(bookingId);
       setBookings((prev) => prev.filter((b) => b.id !== bookingId));
       setDeleteConfirmId(null);
-      await deleteBooking(bookingId);
       refreshNotificationsState();
     } catch (err) {
       console.error('Error deleting booking:', err);
@@ -268,26 +274,24 @@ export const AdminModal: React.FC = () => {
     ];
 
     const rows = bookings.map((b) => [
-      `"${b.id}"`,
-      `"${new Date(b.createdAt).toLocaleString()}"`,
-      `"${b.customerName || ''}"`,
-      `"${b.customerEmail || ''}"`,
-      `"${b.customerPhone || ''}"`,
-      `"${b.serviceType || ''}"`,
-      `"${b.propertyType || ''}"`,
-      `"${(b.address || '').replace(/"/g, '""')}"`,
-      `"${b.preferredDate || ''}"`,
-      `"${b.preferredTimeSlot || ''}"`,
-      `"${b.status}"`,
-      `"${b.approvedAt ? new Date(b.approvedAt).toLocaleString() : ''}"`,
-      `"${b.approvedBy || ''}"`,
-      `"${(b.additionalNotes || '').replace(/"/g, '""')}"`
+      b.id,
+      new Date(b.createdAt).toLocaleString(),
+      b.customerName,
+      b.customerEmail,
+      b.customerPhone,
+      b.serviceType,
+      b.propertyType,
+      b.address,
+      b.preferredDate,
+      b.preferredTimeSlot,
+      b.status,
+      b.approvedAt ? new Date(b.approvedAt).toLocaleString() : '',
+      b.approvedBy,
+      b.additionalNotes
     ]);
 
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = [headers.map(csvCell).join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\r\n');
+    const encodedUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
     link.setAttribute(
@@ -320,8 +324,8 @@ export const AdminModal: React.FC = () => {
     }
   };
 
-  const handleAdminLogout = () => {
-    logoutAdmin();
+  const handleAdminLogout = async () => {
+    await logoutAdmin();
     setAdminEmailInput('');
     setAdminPasswordInput('');
     setLoginError(null);
@@ -497,7 +501,7 @@ export const AdminModal: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-[#BFEDEE]">
-                Signed in as: <strong className="text-white font-medium">{MASTER_ADMIN_EMAIL}</strong>
+                Signed in as: <strong className="text-white font-medium">{(adminUser?.email || '')}</strong>
               </p>
             </div>
           </div>
@@ -630,7 +634,7 @@ export const AdminModal: React.FC = () => {
                       </div>
                       <p className="text-xs text-amber-800 leading-relaxed max-w-2xl">
                         When consumers submit bookings on the website, they receive a pending status. 
-                        <strong> Consumers only receive an official confirmed booking once you click "Approve & Confirm".</strong> Alerts have been routed to <strong>{MASTER_ADMIN_EMAIL}</strong>.
+                        <strong> Consumers only receive an official confirmed booking once you click "Approve & Confirm".</strong> Alerts have been routed to <strong>{(adminUser?.email || '')}</strong>.
                       </p>
                     </div>
                   </div>
@@ -1071,7 +1075,7 @@ export const AdminModal: React.FC = () => {
         {/* Footer info strip */}
         <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-slate-500 shrink-0">
           <div>
-            Authorized dispatch email: <strong>{MASTER_ADMIN_EMAIL}</strong>
+            Authorized dispatch email: <strong>{(adminUser?.email || '')}</strong>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-emerald-700 font-semibold flex items-center gap-1">
@@ -1114,7 +1118,7 @@ export const AdminModal: React.FC = () => {
               </div>
               <p className="text-emerald-800 leading-relaxed">
                 Booking <strong>{selectedBookingForApproval.id}</strong> has been marked as{' '}
-                <strong className="uppercase">CONFIRMED</strong> by administrator ({MASTER_ADMIN_EMAIL}).
+                <strong className="uppercase">CONFIRMED</strong> by administrator ({(adminUser?.email || '')}).
                 The official confirmation message below is ready to be sent to{' '}
                 <strong>{approvalEmailData.to || selectedBookingForApproval.customerPhone}</strong>.
               </p>
@@ -1362,7 +1366,7 @@ export const AdminModal: React.FC = () => {
             </div>
 
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 shrink-0">
-              Tracks all notifications routed to <strong>{MASTER_ADMIN_EMAIL}</strong> and confirmation notices prepared for consumers upon administrator approval.
+              Tracks all notifications routed to <strong>{(adminUser?.email || '')}</strong> and confirmation notices prepared for consumers upon administrator approval.
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">

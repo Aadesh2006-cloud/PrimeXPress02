@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, UserPlus, User, Eye, EyeOff, AlertCircle, Sparkles, ShieldCheck, CheckCircle2 } from 'lucide-react';
-import { supabase, SUPABASE_PROJECT_ID } from '../supabaseClient.js';
 import { useAuth } from '../contexts/AuthContext';
+import { SUPABASE_PROJECT_ID } from '../supabaseClient.js';
 
 export const SignUpPage: React.FC = () => {
   const navigate = useNavigate();
-  const { registerWithEmail } = useAuth();
+  const { registerWithEmail, loginWithGoogle, user } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -15,34 +15,9 @@ export const SignUpPage: React.FC = () => {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // If user is already authenticated or auth completes, redirect to home ("/")
   useEffect(() => {
-    let isMounted = true;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (isMounted && session?.user) {
-        navigate('/');
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (isMounted && session?.user) {
-        navigate('/');
-      }
-    });
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'SUPABASE_OAUTH_SUCCESS') {
-        navigate('/');
-      }
-    };
-    window.addEventListener('message', handleMessage);
-
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
-      window.removeEventListener('message', handleMessage);
-    };
-  }, [navigate]);
+    if (user) navigate('/');
+  }, [user, navigate]);
 
   const validateCredentials = (): boolean => {
     const trimmedName = fullName.trim();
@@ -64,8 +39,8 @@ export const SignUpPage: React.FC = () => {
       setError('Please create a password.');
       return false;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters long.');
       return false;
     }
     return true;
@@ -84,7 +59,10 @@ export const SignUpPage: React.FC = () => {
     try {
       const trimmedName = fullName.trim();
       const result = await registerWithEmail(email.trim(), password, trimmedName);
-      if (result.success) {
+      if (result.success && result.requiresEmailConfirmation) {
+        setPassword('');
+        setError('Check your inbox to confirm your email address, then sign in.');
+      } else if (result.success) {
         navigate('/');
       } else {
         setError(result.error || 'Failed to create account. Please check your details.');
@@ -97,54 +75,10 @@ export const SignUpPage: React.FC = () => {
   };
 
   const handleGoogleSignIn = async () => {
-    setError(null);
-    setGoogleLoading(true);
-
-    try {
-      const redirectUrl = `${window.location.origin}/`;
-      const isIframe = typeof window !== 'undefined' && window.self !== window.top;
-
-      if (isIframe) {
-        const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: redirectUrl,
-            skipBrowserRedirect: true,
-          },
-        });
-
-        if (oauthError) {
-          setError(oauthError.message);
-          return;
-        }
-
-        if (data?.url) {
-          const authWindow = window.open(
-            data.url,
-            'supabase_google_auth',
-            'width=520,height=650,menubar=no,toolbar=no,status=no'
-          );
-          if (!authWindow) {
-            window.location.href = data.url;
-          }
-        }
-      } else {
-        const { error: oauthError } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: redirectUrl,
-          },
-        });
-
-        if (oauthError) {
-          setError(oauthError.message);
-        }
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Failed to initiate Google sign in. Please try again.');
-    } finally {
-      setGoogleLoading(false);
-    }
+    setError(null); setGoogleLoading(true);
+    try { await loginWithGoogle(); }
+    catch { setError('Unable to start Google sign in. Please try again.'); }
+    finally { setGoogleLoading(false); }
   };
 
   return (
@@ -276,8 +210,8 @@ export const SignUpPage: React.FC = () => {
                 >
                   Password
                 </label>
-                <span className={`text-[11px] font-medium transition-colors ${password.length >= 6 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                  {password.length >= 6 ? '✓ 6+ characters' : 'Min. 6 characters'}
+                <span className={`text-[11px] font-medium transition-colors ${password.length >= 12 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {password.length >= 12 ? '✓ 12+ characters' : 'Min. 12 characters'}
                 </span>
               </div>
               <div className="relative">
@@ -295,8 +229,9 @@ export const SignUpPage: React.FC = () => {
                     setPassword(e.target.value);
                     if (error) setError(null);
                   }}
-                  placeholder="At least 6 characters"
-                  minLength={6}
+                  placeholder="At least 12 characters"
+                  minLength={12}
+                  maxLength={128}
                   className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#00A8AD] focus:border-transparent transition-all shadow-xs"
                 />
                 <button

@@ -1,3 +1,4 @@
+import { privateStorage } from '../services/privateData';
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { CheckCircle2, Sparkles, X, ArrowRight, Calendar, ShieldCheck } from 'lucide-react';
@@ -46,7 +47,7 @@ export const ConsumerApprovalNotifier: React.FC = () => {
 
     if (!candidate) {
       try {
-        const stored = localStorage.getItem('pxc_consumer_latest_approved');
+        const stored = privateStorage.getItem('pxc_consumer_latest_approved');
         if (stored) {
           candidate = JSON.parse(stored);
         }

@@ -83,8 +83,7 @@ export const QuoteModal: React.FC<QuoteModalProps> = ({ isOpen, onClose, default
       window.dispatchEvent(new CustomEvent('pxc-booking-updated'));
     } catch (error) {
       console.error('Error saving booking to Supabase:', error);
-      // Fallback still allows user experience
-      setSubmitted(true);
+      window.alert('Unable to submit your booking. Please try again.');
     } finally {
       setLoading(false);
     }

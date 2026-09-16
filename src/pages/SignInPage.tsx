@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, LogIn, Eye, EyeOff, AlertCircle, Sparkles, CheckCircle2, ArrowRight, LogOut } from 'lucide-react';
-import { supabase, SUPABASE_PROJECT_ID } from '../supabaseClient.js';
 import { useAuth } from '../contexts/AuthContext';
+import { SUPABASE_PROJECT_ID } from '../supabaseClient.js';
 
 export const SignInPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, loginWithEmail, logout } = useAuth();
+  const { user, loginWithEmail, logout, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -14,21 +14,9 @@ export const SignInPage: React.FC = () => {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // If user is already authenticated or auth completes, allow direct navigation or notification
   useEffect(() => {
-    let isMounted = true;
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'SUPABASE_OAUTH_SUCCESS') {
-        navigate('/');
-      }
-    };
-    window.addEventListener('message', handleMessage);
-
-    return () => {
-      isMounted = false;
-      window.removeEventListener('message', handleMessage);
-    };
-  }, [navigate]);
+    if (user) navigate('/');
+  }, [user, navigate]);
 
   const validateCredentials = (): boolean => {
     const trimmedEmail = email.trim();
@@ -77,57 +65,10 @@ export const SignInPage: React.FC = () => {
   };
 
   const handleGoogleSignIn = async () => {
-    setError(null);
-    setGoogleLoading(true);
-
-    try {
-      const redirectUrl = `${window.location.origin}/`;
-      const isIframe = typeof window !== 'undefined' && window.self !== window.top;
-
-      if (isIframe) {
-        // In AI Studio iframe environment, Google login denies rendering inside an iframe.
-        // Request the OAuth URL with skipBrowserRedirect and launch popup window.
-        const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: redirectUrl,
-            skipBrowserRedirect: true,
-          },
-        });
-
-        if (oauthError) {
-          setError(oauthError.message);
-          return;
-        }
-
-        if (data?.url) {
-          const authWindow = window.open(
-            data.url,
-            'supabase_google_auth',
-            'width=520,height=650,menubar=no,toolbar=no,status=no'
-          );
-          if (!authWindow) {
-            // Popup was blocked by browser, attempt direct navigation
-            window.location.href = data.url;
-          }
-        }
-      } else {
-        const { error: oauthError } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: redirectUrl,
-          },
-        });
-
-        if (oauthError) {
-          setError(oauthError.message);
-        }
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Failed to initiate Google sign in. Please try again.');
-    } finally {
-      setGoogleLoading(false);
-    }
+    setError(null); setGoogleLoading(true);
+    try { await loginWithGoogle(); }
+    catch { setError('Unable to start Google sign in. Please try again.'); }
+    finally { setGoogleLoading(false); }
   };
 
   return (

@@ -4,17 +4,17 @@ service cloud.firestore {
 
     // Users collection
     match /users/{userId} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
 
     // Bookings collection
     match /bookings/{bookingId} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
 
     // Customer Reviews collection
     match /reviews/{reviewId} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

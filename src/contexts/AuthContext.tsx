@@ -1,474 +1,142 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { UserProfile } from '../types';
-import { supabase } from '../supabaseClient.js';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import type { SupabaseClient, User } from '@supabase/supabase-js';
+import { supabase, adminSupabase } from '../supabaseClient.js';
+import { register, requireAdmin, signIn, signInAdmin, verifiedUser, type AuthResult } from '../services/authService';
+import { clearPrivateData } from '../services/privateData';
 
-export interface AuthUser {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
-  photoURL?: string | null;
-}
-
-export const MASTER_ADMIN_EMAIL = 'PrimeXPress33@gmail.com';
-export const MASTER_ADMIN_PASS = '@PrimeXPress#2006';
-export const STORAGE_KEY_ADMIN_CREATED = 'pxc_admin_account_created';
-export const STORAGE_KEY_ADMIN_LOGGED_IN = 'pxc_admin_auth_logged_in';
-export const STORAGE_KEY_CONSUMER_USER = 'pxc_consumer_auth_user';
-
-export const resolveConsumerName = (user: any): string => {
-  if (!user) return 'Customer';
-  const meta = user.user_metadata || {};
-  if (meta.full_name && typeof meta.full_name === 'string' && meta.full_name.trim()) {
-    return meta.full_name.trim();
-  }
-  if (meta.name && typeof meta.name === 'string' && meta.name.trim()) {
-    return meta.name.trim();
-  }
-  if (meta.first_name && typeof meta.first_name === 'string' && meta.first_name.trim()) {
-    return `${meta.first_name} ${meta.last_name || ''}`.trim();
-  }
-
-  // Check localStorage for a custom saved consumer name
-  try {
-    const savedName = localStorage.getItem(`pxc_consumer_name_${user.id}`);
-    if (savedName && savedName.trim()) {
-      return savedName.trim();
-    }
-    if (user.email) {
-      const savedByEmail = localStorage.getItem(`pxc_consumer_name_${user.email.toLowerCase()}`);
-      if (savedByEmail && savedByEmail.trim()) {
-        return savedByEmail.trim();
-      }
-    }
-  } catch {}
-
-  // Fallback to formatted email prefix
-  if (user.email) {
-    const prefix = user.email.split('@')[0].replace(/[._-]/g, ' ');
-    return prefix
-      .split(' ')
-      .filter(Boolean)
-      .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-  }
-
-  return 'Customer';
-};
+export interface AuthUser { uid: string; email: string | null; displayName: string | null; photoURL?: string | null }
+export const resolveConsumerName = (user: User): string =>
+  String(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Customer');
+const profile = (u: User): AuthUser => ({ uid: u.id, email: u.email || null, displayName: resolveConsumerName(u) });
 
 interface AuthContextType {
-  user: AuthUser | null;
-  userProfile: UserProfile | null;
-  isAdmin: boolean;
-  isAdminLoggedIn: boolean;
-  loading: boolean;
-  isAdminAccountCreated: boolean;
-  setConsumerUser: (user: AuthUser | null) => void;
+  user: AuthUser | null; userProfile: null; adminUser: AuthUser | null;
+  isAdmin: boolean; isAdminLoggedIn: boolean; loading: boolean;
+  loginWithEmail: (email: string, password: string) => Promise<AuthResult>;
+  registerWithEmail: (email: string, password: string, name?: string, phone?: string) => Promise<AuthResult>;
+  loginAdmin: (email: string, password: string) => Promise<AuthResult>;
+  loginWithGoogle: () => Promise<void>; logout: () => Promise<void>; logoutAdmin: () => Promise<void>;
   updateConsumerName: (name: string) => Promise<void>;
-  createAdminAccount: (
-    email: string,
-    pass: string,
-    name?: string,
-    phone?: string
-  ) => Promise<{ success: boolean; error?: string }>;
-  loginAdmin: (
-    email: string,
-    pass: string
-  ) => Promise<{ success: boolean; error?: string }>;
-  logoutAdmin: () => void;
-  loginWithGoogle: () => Promise<void>;
-  loginWithEmail: (
-    email: string,
-    pass: string
-  ) => Promise<{ success: boolean; error?: string }>;
-  registerWithEmail: (
-    email: string,
-    pass: string,
-    name?: string,
-    phone?: string
-  ) => Promise<{ success: boolean; error?: string }>;
-  logout: () => Promise<void>;
-  isAdminPanelOpen: boolean;
-  openAdminPanel: () => void;
-  closeAdminPanel: () => void;
-  isAuthModalOpen: boolean;
-  authModalMode: 'login' | 'register';
-  openAuthModal: (mode?: 'login' | 'register') => void;
-  closeAuthModal: () => void;
-  isPortalModalOpen: boolean;
-  openPortalModal: () => void;
-  closePortalModal: () => void;
+  isAdminPanelOpen: boolean; openAdminPanel: () => void; closeAdminPanel: () => void;
+  isPortalModalOpen: boolean; openPortalModal: () => void; closePortalModal: () => void;
+  isAuthModalOpen: boolean; authModalMode: 'login' | 'register';
+  openAuthModal: (mode?: 'login' | 'register') => void; closeAuthModal: () => void;
 }
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_CONSUMER_USER);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && (parsed.uid || parsed.email)) {
-          return parsed;
-        }
-      }
-    } catch {}
-    return null;
-  });
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [adminUser, setAdminUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
-  const [isPortalModalOpen, setIsPortalModalOpen] = useState(false);
-  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY_ADMIN_LOGGED_IN) === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  const setAndPersistConsumer = (u: AuthUser | null) => {
-    setCurrentUser(u);
-    try {
-      if (u) {
-        localStorage.setItem(STORAGE_KEY_CONSUMER_USER, JSON.stringify(u));
-        window.dispatchEvent(new CustomEvent('pxc-consumer-auth-changed', { detail: { user: u } }));
-      } else {
-        localStorage.removeItem(STORAGE_KEY_CONSUMER_USER);
-        window.dispatchEvent(new CustomEvent('pxc-consumer-auth-changed', { detail: { user: null } }));
-      }
-    } catch {}
-  };
+  const [isAdminPanelOpen, setAdminPanelOpen] = useState(false);
+  const [isPortalModalOpen, setPortalModalOpen] = useState(false);
+  const userId = useRef<string | null>(null);
 
   useEffect(() => {
-    // If running in an OAuth popup window, notify opener and close
-    if (
-      typeof window !== 'undefined' &&
-      window.opener &&
-      (window.location.hash.includes('access_token') || window.location.search.includes('code='))
-    ) {
+    clearPrivateData();
+    let active = true;
+    let customerGeneration = 0;
+    let adminGeneration = 0;
+    const syncCustomer = async () => {
+      const generation = ++customerGeneration;
+      let found: User | null = null;
       try {
-        window.opener.postMessage({ type: 'SUPABASE_OAUTH_SUCCESS' }, '*');
-        setTimeout(() => window.close(), 200);
-      } catch {
-        // ignore
+        const { data } = await supabase.auth.getSession();
+        if (data.session) found = await verifiedUser(supabase);
+      } catch { /* Fail closed, including offline restoration. */ }
+      if (!active || generation !== customerGeneration) return;
+      if (userId.current !== (found?.id ?? null)) {
+        clearPrivateData();
+        try { sessionStorage.removeItem('pxc_guest_capabilities_v2'); } catch {}
       }
-    }
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'SUPABASE_OAUTH_SUCCESS') {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session?.user) {
-            const authUser: AuthUser = {
-              uid: session.user.id,
-              email: session.user.email || null,
-              displayName: resolveConsumerName(session.user),
-            };
-            setAndPersistConsumer(authUser);
-          }
-        });
-      }
+      userId.current = found?.id ?? null;
+      setUser(found ? profile(found) : null);
+      setLoading(false);
+      window.dispatchEvent(new CustomEvent('pxc-consumer-auth-changed'));
+      if (found && window.name === 'supabase_google_auth' && window.opener) window.close();
     };
-    window.addEventListener('message', handleMessage);
-
-    // Check initial Supabase session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const authUser: AuthUser = {
-          uid: session.user.id,
-          email: session.user.email || null,
-          displayName: resolveConsumerName(session.user),
-        };
-        setAndPersistConsumer(authUser);
-      }
-      setLoading(false);
-    }).catch(() => {
-      setLoading(false);
-    });
-
-    // Listen to Supabase auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        const authUser: AuthUser = {
-          uid: session.user.id,
-          email: session.user.email || null,
-          displayName: resolveConsumerName(session.user),
-        };
-        setAndPersistConsumer(authUser);
-      } else if (event === 'SIGNED_OUT') {
-        setAndPersistConsumer(null);
-      }
-      setLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-      window.removeEventListener('message', handleMessage);
+    const syncAdmin = async () => {
+      const generation = ++adminGeneration;
+      let found: User | null = null;
+      try {
+        const { data } = await adminSupabase.auth.getSession();
+        if (data.session) found = await requireAdmin(adminSupabase);
+      } catch { /* A failed/missing role lookup never grants access. */ }
+      if (active && generation === adminGeneration) setAdminUser(found ? profile(found) : null);
     };
+    // Defer SDK calls outside onAuthStateChange's storage lock.
+    const customer = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        ++customerGeneration; userId.current = null; setUser(null); clearPrivateData();
+      } else setTimeout(() => { if (active) void syncCustomer(); }, 0);
+    });
+    const admin = adminSupabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') { ++adminGeneration; setAdminUser(null); clearPrivateData(); }
+      else setTimeout(() => { if (active) void syncAdmin(); }, 0);
+    });
+    void syncCustomer(); void syncAdmin();
+    const onFocus = () => { void syncCustomer(); void syncAdmin(); };
+    window.addEventListener('focus', onFocus);
+    return () => { active = false; customer.data.subscription.unsubscribe(); admin.data.subscription.unsubscribe(); window.removeEventListener('focus', onFocus); };
   }, []);
 
-  const updateConsumerName = async (newName: string): Promise<void> => {
-    if (!currentUser) return;
-    const trimmed = newName.trim();
-    if (!trimmed) return;
-
+  const logoutClient = async (client: SupabaseClient, admin = false) => {
+    if (admin) setAdminUser(null); else { setUser(null); userId.current = null; }
+    clearPrivateData();
+    try { sessionStorage.removeItem('pxc_guest_capabilities_v2'); } catch {}
     try {
-      localStorage.setItem(`pxc_consumer_name_${currentUser.uid}`, trimmed);
-      if (currentUser.email) {
-        localStorage.setItem(`pxc_consumer_name_${currentUser.email.toLowerCase()}`, trimmed);
-      }
-      await supabase.auth.updateUser({
-        data: { full_name: trimmed, name: trimmed },
-      });
-      const updatedUser: AuthUser = { ...currentUser, displayName: trimmed };
-      setAndPersistConsumer(updatedUser);
-    } catch (err) {
-      console.error('Failed to update consumer name:', err);
-      const updatedUser: AuthUser = { ...currentUser, displayName: trimmed };
-      setAndPersistConsumer(updatedUser);
-    }
-  };
-
-  const openAdminPanel = () => setIsAdminPanelOpen(true);
-  const closeAdminPanel = () => setIsAdminPanelOpen(false);
-
-  const openPortalModal = () => setIsPortalModalOpen(true);
-  const closePortalModal = () => setIsPortalModalOpen(false);
-
-  const openAuthModal = () => {
-    setIsPortalModalOpen(true);
-  };
-  const closeAuthModal = () => {};
-
-  const loginWithGoogle = async (): Promise<void> => {
-    return Promise.resolve();
-  };
-
-  const loginWithEmail = async (
-    email: string,
-    pass: string
-  ): Promise<{ success: boolean; error?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
-
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password: pass,
-      });
-
-      if (data?.user) {
-        const name = resolveConsumerName(data.user);
-        const authUser: AuthUser = {
-          uid: data.user.id,
-          email: data.user.email || cleanEmail,
-          displayName: name,
-        };
-        setAndPersistConsumer(authUser);
-        return { success: true };
-      }
-
-      // Handle unconfirmed email
-      if (error && error.message.toLowerCase().includes('email not confirmed')) {
-        let savedName = '';
-        try {
-          savedName = localStorage.getItem(`pxc_consumer_name_${cleanEmail}`) || '';
-        } catch {}
-        if (!savedName) {
-          const prefix = cleanEmail.split('@')[0].replace(/[._-]/g, ' ');
-          savedName = prefix
-            .split(' ')
-            .filter(Boolean)
-            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(' ');
-        }
-        const authUser: AuthUser = {
-          uid: `consumer_${Date.now()}`,
-          email: cleanEmail,
-          displayName: savedName || 'Consumer',
-        };
-        setAndPersistConsumer(authUser);
-        return { success: true };
-      }
-
-      // If user registered locally or has custom name saved
-      let savedName = '';
-      try {
-        savedName = localStorage.getItem(`pxc_consumer_name_${cleanEmail}`) || '';
-      } catch {}
-
-      if (savedName) {
-        const authUser: AuthUser = {
-          uid: `consumer_${Date.now()}`,
-          email: cleanEmail,
-          displayName: savedName,
-        };
-        setAndPersistConsumer(authUser);
-        return { success: true };
-      }
-
-      // Fallback: If valid email and password format, grant instant consumer access
-      if (cleanEmail.includes('@') && pass.length >= 4) {
-        const prefix = cleanEmail.split('@')[0].replace(/[._-]/g, ' ');
-        const derivedName = prefix
-          .split(' ')
-          .filter(Boolean)
-          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-          .join(' ');
-        const authUser: AuthUser = {
-          uid: `consumer_${Date.now()}`,
-          email: cleanEmail,
-          displayName: derivedName || 'Consumer',
-        };
-        setAndPersistConsumer(authUser);
-        return { success: true };
-      }
-
-      if (error) {
-        return { success: false, error: error.message };
-      }
-      return { success: false, error: 'Invalid login credentials' };
-    } catch (err: any) {
-      if (cleanEmail.includes('@') && pass.length >= 4) {
-        const prefix = cleanEmail.split('@')[0].replace(/[._-]/g, ' ');
-        const derivedName = prefix
-          .split(' ')
-          .filter(Boolean)
-          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-          .join(' ');
-        const authUser: AuthUser = {
-          uid: `consumer_${Date.now()}`,
-          email: cleanEmail,
-          displayName: derivedName || 'Consumer',
-        };
-        setAndPersistConsumer(authUser);
-        return { success: true };
-      }
-      return { success: false, error: err?.message || 'Failed to sign in.' };
-    }
-  };
-
-  const registerWithEmail = async (
-    email: string,
-    pass: string,
-    name?: string,
-    phone?: string
-  ): Promise<{ success: boolean; error?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanName = (name || '').trim() || cleanEmail.split('@')[0];
-
-    try {
-      localStorage.setItem(`pxc_consumer_name_${cleanEmail}`, cleanName);
-      if (phone) {
-        localStorage.setItem(`pxc_consumer_phone_${cleanEmail}`, phone);
-      }
-
-      const { data } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password: pass,
-        options: {
-          data: {
-            full_name: cleanName,
-            name: cleanName,
-            phone: phone || '',
-          },
-        },
-      });
-
-      const uid = data?.user?.id || `consumer_${Date.now()}`;
-      const authUser: AuthUser = {
-        uid,
-        email: data?.user?.email || cleanEmail,
-        displayName: cleanName,
-      };
-      setAndPersistConsumer(authUser);
-      return { success: true };
+      const { error } = await client.auth.signOut({ scope: 'local' });
+      if (error) throw error;
     } catch {
-      const authUser: AuthUser = {
-        uid: `consumer_${Date.now()}`,
-        email: cleanEmail,
-        displayName: cleanName,
-      };
-      setAndPersistConsumer(authUser);
-      return { success: true };
+      // The SDK may retain storage when its logout endpoint is offline.
+      (admin ? sessionStorage : localStorage).removeItem(admin ? 'pxc_admin_session_v2' : 'pxc_customer_session_v2');
+      window.location.replace('/signin');
     }
   };
-
-  const logout = async (): Promise<void> => {
+  const loginWithGoogle = async () => {
+    const embedded = window.self !== window.top;
+    const popup = embedded ? window.open('about:blank', 'supabase_google_auth', 'width=520,height=650,menubar=no,toolbar=no,status=no') : null;
     try {
-      await supabase.auth.signOut();
-    } catch {}
-    setAndPersistConsumer(null);
+      const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/signin`, skipBrowserRedirect: embedded } });
+      if (error) throw error;
+      if (embedded && data.url) {
+        if (popup) popup.location.href = data.url;
+        else window.location.assign(data.url);
+      }
+    } catch (error) { popup?.close(); throw error; }
   };
-
-  const loginAdmin = async (
-    email: string,
-    pass: string
-  ): Promise<{ success: boolean; error?: string }> => {
-    const trimmedEmail = (email || '').trim().toLowerCase();
-    const expectedEmail = MASTER_ADMIN_EMAIL.toLowerCase();
-
-    if (trimmedEmail === expectedEmail && pass === MASTER_ADMIN_PASS) {
-      setIsAdminLoggedIn(true);
-      try {
-        localStorage.setItem(STORAGE_KEY_ADMIN_LOGGED_IN, 'true');
-      } catch {}
-      return { success: true };
-    } else {
-      return {
-        success: false,
-        error: 'Invalid Administrator ID or Password. Access restricted to authorized dispatch staff.',
-      };
+  const loginAdmin = async (email: string, password: string) => {
+    setAdminUser(null);
+    const result = await signInAdmin(adminSupabase, email, password);
+    if (result.success) {
+      try { setAdminUser(profile(await requireAdmin(adminSupabase))); }
+      catch {
+        await logoutClient(adminSupabase, true);
+        return { success: false, error: 'Unable to verify administrator access.' };
+      }
     }
+    return result;
   };
 
-  const logoutAdmin = (): void => {
-    setIsAdminLoggedIn(false);
-    try {
-      localStorage.removeItem(STORAGE_KEY_ADMIN_LOGGED_IN);
-    } catch {}
-  };
-
-  const createAdminAccount = async (): Promise<{ success: boolean }> => {
-    return { success: true };
-  };
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user: currentUser,
-        userProfile: null,
-        isAdmin: isAdminLoggedIn,
-        isAdminLoggedIn,
-        loading,
-        isAdminAccountCreated: true,
-        setConsumerUser: setAndPersistConsumer,
-        updateConsumerName,
-        createAdminAccount,
-        loginAdmin,
-        logoutAdmin,
-        loginWithGoogle,
-        loginWithEmail,
-        registerWithEmail,
-        logout,
-        isAdminPanelOpen,
-        openAdminPanel,
-        closeAdminPanel,
-        isAuthModalOpen: false,
-        authModalMode: 'login',
-        openAuthModal,
-        closeAuthModal,
-        isPortalModalOpen,
-        openPortalModal,
-        closePortalModal,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{
+    user, userProfile: null, adminUser, isAdmin: Boolean(adminUser), isAdminLoggedIn: Boolean(adminUser), loading,
+    loginWithEmail: (email, password) => signIn(supabase, email, password),
+    registerWithEmail: (email, password, name = '', phone) => register(supabase, email, password, name, phone),
+    loginAdmin, loginWithGoogle,
+    logout: () => logoutClient(supabase), logoutAdmin: () => logoutClient(adminSupabase, true),
+    updateConsumerName: async (name) => {
+      if (!user || !name.trim()) return;
+      const { error } = await supabase.auth.updateUser({ data: { full_name: name.trim() } });
+      if (error) throw error;
+      setUser({ ...user, displayName: name.trim() });
+    },
+    isAdminPanelOpen, openAdminPanel: () => setAdminPanelOpen(true), closeAdminPanel: () => setAdminPanelOpen(false),
+    isPortalModalOpen, openPortalModal: () => setPortalModalOpen(true), closePortalModal: () => setPortalModalOpen(false),
+    isAuthModalOpen: false, authModalMode: 'login', openAuthModal: () => setPortalModalOpen(true), closeAuthModal: () => setPortalModalOpen(false),
+  }}><React.Fragment key={`${user?.uid || 'guest'}:${adminUser?.uid || 'no-admin'}`}>{children}</React.Fragment></AuthContext.Provider>;
 };
-
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const value = useContext(AuthContext);
+  if (!value) throw new Error('useAuth must be used within an AuthProvider');
+  return value;
 };
