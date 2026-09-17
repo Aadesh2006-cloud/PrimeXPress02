@@ -122,13 +122,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQuoteModal }) => {
               <Phone className="w-3.5 h-3.5 text-[#00A8AD]" />
               <span>{COMPANY_INFO.primaryPhone}</span>
             </a>
-            <span className="text-white/40">|</span>
-            <a
-              href={`mailto:${COMPANY_INFO.email}`}
-              className="text-[#BFEDEE] hover:text-white font-semibold transition-colors"
-            >
-              {COMPANY_INFO.email}
-            </a>
           </div>
         </div>
       </div>
