@@ -211,7 +211,7 @@ export const ContactPage: React.FC = () => {
                       Operating Hours
                     </div>
                     <div className="font-extrabold text-sm text-[#063F4D]">
-                      Monday – Saturday: 8:00 AM – 7:00 PM
+                      Monday – Saturday: 8:00 AM – 10:00 PM
                     </div>
                     <div className="text-slate-500 text-[11px]">
                       Sunday: Special commercial & emergency appointments by request.
