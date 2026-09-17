@@ -1,4 +1,5 @@
 {
+  "exclude": ["node_modules", "supabase/functions/booking-email-notifications/index.ts"],
   "compilerOptions": {
     "target": "ES2022",
     "experimentalDecorators": true,

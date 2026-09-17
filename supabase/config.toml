@@ -1,0 +1,2 @@
+[functions.booking-email-notifications]
+verify_jwt = false
