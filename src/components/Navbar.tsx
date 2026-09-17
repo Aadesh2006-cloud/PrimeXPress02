@@ -111,7 +111,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQuoteModal }) => {
             </span>
             <span className="flex items-center gap-1.5 text-white/80">
               <Clock className="w-3.5 h-3.5 text-[#00A8AD]" />
-              Mon–Sat 8am–7pm
+              Mon–Sat 8am–10pm
             </span>
           </div>
           <div className="flex items-center space-x-4">
